@@ -1,0 +1,112 @@
+<script setup>
+import { computed, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import AuthLayout from '@/layouts/AuthLayout.vue'
+
+const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+const mode = ref('login')
+
+const form = reactive({
+  email: '',
+  password: '',
+  confirmPassword: ''
+})
+
+const validationError = computed(() => {
+  if (!form.email || !form.password) {
+    return 'Email and password are required.'
+  }
+
+  if (mode.value === 'register' && form.password !== form.confirmPassword) {
+    return 'Passwords do not match.'
+  }
+
+  return ''
+})
+
+async function submit() {
+  if (validationError.value) {
+    return
+  }
+
+  if (mode.value === 'login') {
+    await authStore.signInWithPassword({
+      email: form.email,
+      password: form.password
+    })
+  } else {
+    await authStore.signUp({
+      email: form.email,
+      password: form.password
+    })
+  }
+
+  if (!authStore.error && mode.value === 'login') {
+    router.push(route.query.redirect || '/dashboard')
+  }
+}
+</script>
+
+<template>
+  <AuthLayout>
+    <div class="row justify-content-center">
+      <div class="col-xl-10">
+        <div class="row g-4 align-items-stretch">
+          <div class="col-lg-6">
+            <div class="glass-panel-strong p-4 p-lg-5 h-100">
+              <span class="eyebrow mb-3">Secure Access</span>
+              <h1 class="section-title mb-3">Enter the TransitFlow workspace</h1>
+              <p class="section-copy mb-4">
+                Supabase Auth powers email sessions and Google OAuth, while route guards protect dashboards and admin views.
+              </p>
+              <div class="glass-panel p-4">
+                <div class="fw-semibold mb-2">Included in this scaffold</div>
+                <div class="text-muted-soft small">Persistent sessions, Google login placeholder, Pinia auth store, and protected routes.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-lg-6">
+            <div class="glass-panel p-4 p-lg-5 h-100">
+              <div class="d-flex gap-2 mb-4">
+                <button class="btn" :class="mode === 'login' ? 'btn-tf-primary' : 'btn-tf-secondary'" @click="mode = 'login'">Login</button>
+                <button class="btn" :class="mode === 'register' ? 'btn-tf-primary' : 'btn-tf-secondary'" @click="mode = 'register'">Register</button>
+              </div>
+
+              <button class="btn btn-tf-secondary w-100 mb-3" @click="authStore.signInWithGoogle()">
+                Continue with Google
+              </button>
+
+              <div class="text-center text-muted-soft small mb-3">or use email and password</div>
+
+              <form class="d-flex flex-column gap-3" @submit.prevent="submit">
+                <div>
+                  <label class="form-label">Email</label>
+                  <input v-model="form.email" type="email" class="form-control" placeholder="you@company.com" />
+                </div>
+                <div>
+                  <label class="form-label">Password</label>
+                  <input v-model="form.password" type="password" class="form-control" placeholder="Minimum 6 characters" />
+                </div>
+                <div v-if="mode === 'register'">
+                  <label class="form-label">Confirm Password</label>
+                  <input v-model="form.confirmPassword" type="password" class="form-control" placeholder="Confirm your password" />
+                </div>
+
+                <div v-if="validationError" class="text-warning small">{{ validationError }}</div>
+                <div v-if="authStore.error" class="text-danger small">{{ authStore.error }}</div>
+
+                <button class="btn btn-tf-primary w-100" :disabled="authStore.loading">
+                  {{ authStore.loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account' }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </AuthLayout>
+</template>
