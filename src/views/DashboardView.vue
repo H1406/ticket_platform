@@ -1,4 +1,5 @@
 <script setup>
+import { onMounted } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import SectionHeading from '@/components/common/SectionHeading.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
@@ -9,6 +10,16 @@ import { useBookingStore } from '@/stores/booking'
 
 const authStore = useAuthStore()
 const bookingStore = useBookingStore()
+
+onMounted(async () => {
+  // Load all dashboard data
+  await Promise.all([
+    bookingStore.fetchLiveStats(),
+    bookingStore.fetchUserTrips(),
+    bookingStore.fetchBookingHistory(),
+    bookingStore.fetchNotifications()
+  ])
+})
 </script>
 
 <template>

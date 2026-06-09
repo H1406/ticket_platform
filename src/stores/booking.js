@@ -52,7 +52,8 @@ export const useBookingStore = defineStore('booking', {
           arrivalTime: route.arrival_time,
           price: '$0',
           duration: '0h',
-          class: 'Standard'
+          class: 'Standard',
+          vehicles: route.vehicles || []
         }))
 
         if (this.routes.length > 0) {

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MainLayout from '@/layouts/MainLayout.vue'
 import SectionHeading from '@/components/common/SectionHeading.vue'
@@ -9,6 +9,12 @@ import { useBookingStore } from '@/stores/booking'
 
 const router = useRouter()
 const bookingStore = useBookingStore()
+
+onMounted(async () => {
+  if (bookingStore.routes.length === 0) {
+    await bookingStore.fetchRoutes()
+  }
+})
 
 const form = reactive({
   departure: 'Hanoi',

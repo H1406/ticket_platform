@@ -1,10 +1,16 @@
 <script setup>
+import { onMounted } from 'vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import PassengerTable from '@/components/admin/PassengerTable.vue'
 import { useBookingStore } from '@/stores/booking'
 
 const bookingStore = useBookingStore()
+
+onMounted(async () => {
+  // Load live stats for admin dashboard
+  await bookingStore.fetchLiveStats()
+})
 
 const adminStats = [
   { label: 'Active boardings', value: '12', change: 'Gate events queued' },

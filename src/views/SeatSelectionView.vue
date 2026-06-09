@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import SectionHeading from '@/components/common/SectionHeading.vue'
 import InteractiveSeatMap from '@/components/seatmap/InteractiveSeatMap.vue'
@@ -16,6 +16,13 @@ const { minutes, seconds, isExpired } = useReservationCountdown(expiresAt)
 // TODO: Replace mock socket handler with channel-specific seat updates from backend locks.
 useRealtimeChannel({
   'seats:updated': () => {}
+})
+
+onMounted(async () => {
+  // Load seats for the first vehicle of the selected route
+  if (bookingStore.selectedRoute?.vehicles?.[0]?.id) {
+    await bookingStore.fetchSeatMap(bookingStore.selectedRoute.vehicles[0].id)
+  }
 })
 
 const selectedSummary = computed(() => bookingStore.selectedSeats.join(', '))
