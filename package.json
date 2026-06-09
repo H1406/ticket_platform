@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.49.8",
     "axios": "^1.9.0",
     "bootstrap": "^5.3.7",
+    "dotenv": "^17.4.2",
     "pinia": "^3.0.3",
     "socket.io-client": "^4.8.1",
     "vue": "^3.5.16",

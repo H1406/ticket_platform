@@ -48,6 +48,13 @@ async function submit() {
     router.push(route.query.redirect || '/dashboard')
   }
 }
+
+function continueWithGoogle() {
+  const targetPath =
+    typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+
+  authStore.signInWithGoogle(targetPath)
+}
 </script>
 
 <template>
@@ -76,7 +83,7 @@ async function submit() {
                 <button class="btn" :class="mode === 'register' ? 'btn-tf-primary' : 'btn-tf-secondary'" @click="mode = 'register'">Register</button>
               </div>
 
-              <button class="btn btn-tf-secondary w-100 mb-3" @click="authStore.signInWithGoogle()">
+              <button class="btn btn-tf-secondary w-100 mb-3" @click="continueWithGoogle">
                 Continue with Google
               </button>
 

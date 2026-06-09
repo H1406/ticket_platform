@@ -15,6 +15,12 @@ const routes = [
     meta: { layout: 'auth', guestOnly: true }
   },
   {
+    path: '/callback',
+    name: 'auth-callback',
+    component: () => import('@/views/AuthCallbackView.vue'),
+    meta: { layout: 'auth' }
+  },
+  {
     path: '/dashboard',
     name: 'dashboard',
     component: () => import('@/views/DashboardView.vue'),
