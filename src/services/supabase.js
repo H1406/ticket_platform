@@ -11,14 +11,21 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-// Major architecture note:
-// These metadata definitions keep future database contracts discoverable in one place
-// while the MVP still runs on mock data and UI-first flows.
 export const dbTables = {
   users: ['id', 'email', 'first_name', 'last_name', 'avatar_url', 'role', 'created_at'],
   routes: ['id', 'transport_type', 'departure', 'destination', 'departure_time', 'arrival_time'],
   vehicles: ['id', 'route_id', 'vehicle_code', 'vehicle_type', 'capacity', 'deck_layout'],
-  seats: ['id', 'vehicle_id', 'seat_code', 'seat_class', 'status', 'position_meta'],
+  seats: [
+    'id',
+    'vehicle_id',
+    'seat_code',
+    'seat_class',
+    'status',
+    'held_by_booking_id',
+    'held_by_user_id',
+    'hold_expires_at',
+    'position_meta'
+  ],
   bookings: ['id', 'user_id', 'route_id', 'seat_ids', 'status', 'hold_expires_at'],
   tickets: ['id', 'booking_id', 'qr_payload', 'boarding_status', 'issued_at'],
   checkins: ['id', 'ticket_id', 'checked_in_at', 'gate', 'agent_id'],

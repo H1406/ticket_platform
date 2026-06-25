@@ -5,7 +5,7 @@ defineProps({
 </script>
 
 <template>
-  <div class="glass-panel-strong p-4 p-lg-5 overflow-hidden position-relative">
+  <div class="glass-panel-strong p-4 p-lg-5 position-relative">
     <div class="row g-4 align-items-center">
       <div class="col-lg-8">
         <div class="d-flex justify-content-between flex-wrap gap-3 mb-4">
@@ -22,6 +22,7 @@ defineProps({
             <div class="glass-panel p-3 h-100">
               <div class="small text-muted-soft">Passenger</div>
               <div class="fw-semibold">{{ ticket.passenger }}</div>
+              <div class="text-muted-soft small">{{ ticket.passengerEmail }}</div>
             </div>
           </div>
           <div class="col-sm-6">
@@ -56,10 +57,17 @@ defineProps({
 
       <div class="col-lg-4">
         <div class="glass-panel p-4 text-center">
-          <div class="mx-auto mb-3 d-grid place-items-center rounded-4 bg-light text-dark" style="width: 180px; height: 180px;">
+          <img
+            v-if="ticket.qrCodeDataUrl"
+            :src="ticket.qrCodeDataUrl"
+            alt="Ticket QR code"
+            class="mx-auto mb-3 rounded-4 bg-light p-2"
+            style="width: 180px; height: 180px;"
+          />
+          <div v-else class="mx-auto mb-3 d-grid place-items-center rounded-4 bg-light text-dark" style="width: 180px; height: 180px;">
             QR
           </div>
-          <div class="small text-muted-soft">QR placeholder for future generated ticket payload</div>
+          <div class="small text-muted-soft">QR payload: {{ ticket.qrPayload }}</div>
         </div>
       </div>
     </div>

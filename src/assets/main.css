@@ -1,3 +1,9 @@
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
 :root {
   --tf-bg: #07111f;
   --tf-bg-soft: #0f1b33;
@@ -27,13 +33,13 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
   color: var(--tf-text);
   background:
     radial-gradient(circle at top left, rgba(77, 210, 255, 0.24), transparent 26%),
     radial-gradient(circle at 80% 10%, rgba(57, 217, 138, 0.16), transparent 22%),
     linear-gradient(180deg, #081120 0%, #050a14 100%);
-  background-attachment: fixed;
+  background-attachment: scroll;
 }
 
 a {
@@ -43,12 +49,13 @@ a {
 
 .app-shell {
   position: relative;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow: visible;
 }
 
 .app-shell::before {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
   background-image:
     linear-gradient(var(--tf-grid-line) 1px, transparent 1px),
@@ -56,6 +63,12 @@ a {
   background-size: 34px 34px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 92%);
   pointer-events: none;
+  z-index: 0;
+}
+
+.app-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 .glass-panel {
@@ -208,6 +221,27 @@ a {
   padding: 6rem 0;
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.dashboard-col {
+  min-width: 0;
+}
+
+.dashboard-chart {
+  min-height: 220px;
+}
+
+.dashboard-chart-bar {
+  align-self: flex-end;
+  height: var(--bar-height);
+  min-height: 56px;
+}
+
 .transition-fade-enter-active,
 .transition-fade-leave-active {
   transition: opacity 0.25s ease;
@@ -230,5 +264,9 @@ a {
 @media (max-width: 991px) {
   .page-section {
     padding: 4rem 0;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
   }
 }

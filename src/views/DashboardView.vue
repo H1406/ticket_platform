@@ -32,15 +32,15 @@ onMounted(async () => {
           copy="Your dashboard brings together live trip context, booking performance, notifications, and recent activity in one responsive operations view."
         />
 
-        <div class="row g-4 mb-4">
-          <div v-for="stat in bookingStore.liveStats" :key="stat.label" class="col-sm-6 col-xl-3">
-            <StatCard v-bind="stat" />
-          </div>
-        </div>
+        <div class="dashboard-grid mb-4">
+          <div class="dashboard-col dashboard-col-main">
+            <div class="row g-4">
+              <div v-for="stat in bookingStore.liveStats" :key="stat.label" class="col-12 col-md-6 col-xxl-3">
+                <StatCard v-bind="stat" />
+              </div>
+            </div>
 
-        <div class="row g-4">
-          <div class="col-xl-8">
-            <div class="glass-panel p-4 mb-4">
+            <div class="glass-panel p-4 mt-4">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h3 class="h4 mb-0">Upcoming trips</h3>
                 <RouterLink to="/search" class="btn btn-tf-secondary">Book another trip</RouterLink>
@@ -52,7 +52,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="glass-panel p-4">
+            <div class="glass-panel p-4 mt-4">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h3 class="h4 mb-0">Booking history</h3>
                 <span class="text-muted-soft small">Recent activity</span>
@@ -80,23 +80,22 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div class="col-xl-4">
+          <div class="dashboard-col dashboard-col-aside">
             <NotificationList :notifications="bookingStore.notifications" />
 
             <div class="glass-panel p-4 mt-4">
-              <h3 class="h5 mb-3">Recent activity</h3>
+              <h3 class="h5 mb-3">Realtime booking snapshot</h3>
               <div class="d-flex flex-column gap-3">
-                <div class="glass-panel p-3">
-                  <div class="fw-semibold">Ticket QR regenerated</div>
-                  <div class="small text-muted-soft">3 minutes ago</div>
+                <div
+                  v-for="stat in bookingStore.liveStats.slice(0, 3)"
+                  :key="stat.label"
+                  class="glass-panel p-3"
+                >
+                  <div class="fw-semibold">{{ stat.label }}</div>
+                  <div class="small text-muted-soft">{{ stat.value }} · {{ stat.change }}</div>
                 </div>
-                <div class="glass-panel p-3">
-                  <div class="fw-semibold">Booking hold extended</div>
-                  <div class="small text-muted-soft">12 minutes ago</div>
-                </div>
-                <div class="glass-panel p-3">
-                  <div class="fw-semibold">Notification stream placeholder active</div>
-                  <div class="small text-muted-soft">Realtime hook ready for sockets</div>
+                <div v-if="bookingStore.liveStats.length === 0" class="glass-panel p-3">
+                  <div class="small text-muted-soft">No live metrics are available right now.</div>
                 </div>
               </div>
             </div>

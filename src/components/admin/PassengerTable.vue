@@ -5,7 +5,7 @@ defineProps({
 </script>
 
 <template>
-  <div class="glass-panel p-4">
+  <div class="glass-panel p-4 h-auto">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h3 class="h5 mb-0">Passenger check-in table</h3>
       <span class="text-muted-soft small">Mock live feed</span>

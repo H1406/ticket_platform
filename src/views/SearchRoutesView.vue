@@ -17,23 +17,30 @@ onMounted(async () => {
 })
 
 const form = reactive({
-  departure: 'Hanoi',
-  destination: 'Da Nang',
-  departureDate: '2026-06-04',
+  departure: '',
+  destination: '',
+  departureDate: '',
   passengers: 1
 })
 
 const filters = reactive({
-  price: 180,
+  vehicleType: '',
   type: '',
   time: ''
 })
 
 const filteredRoutes = computed(() =>
   bookingStore.routes.filter((route) => {
-    const numericPrice = Number(route.price.replace(/[^0-9]/g, ''))
+    const normalizedDeparture = form.departure.trim().toLowerCase()
+    const normalizedDestination = form.destination.trim().toLowerCase()
+    const normalizedVehicleType = filters.vehicleType.trim().toLowerCase()
+    const matchesDeparture =
+      !normalizedDeparture || route.departure.toLowerCase().includes(normalizedDeparture)
+    const matchesDestination =
+      !normalizedDestination || route.destination.toLowerCase().includes(normalizedDestination)
     const matchesType = !filters.type || route.type === filters.type
-    const matchesPrice = numericPrice <= filters.price
+    const matchesVehicleType =
+      !normalizedVehicleType || route.vehicleType.toLowerCase().includes(normalizedVehicleType)
     const matchesTime =
       !filters.time ||
       (filters.time === 'morning' && Number(route.departureTime.slice(0, 2)) < 12) ||
@@ -42,14 +49,20 @@ const filteredRoutes = computed(() =>
         Number(route.departureTime.slice(0, 2)) < 18) ||
       (filters.time === 'night' && Number(route.departureTime.slice(0, 2)) >= 18)
 
-    return matchesType && matchesPrice && matchesTime
+    return (
+      matchesDeparture &&
+      matchesDestination &&
+      matchesType &&
+      matchesVehicleType &&
+      matchesTime
+    )
   })
 )
 
-function selectRoute(route) {
-  bookingStore.selectRoute(route)
+async function selectRoute(route) {
+  await bookingStore.selectRoute(route.id)
   bookingStore.resetSeatHold()
-  router.push('/seat-selection')
+  router.push({ name: 'seat-selection', query: { routeId: route.id } })
 }
 </script>
 
@@ -60,7 +73,7 @@ function selectRoute(route) {
         <SectionHeading
           eyebrow="Route Discovery"
           title="Search routes across rail and air inventory"
-          copy="This MVP search flow is built to evolve into API-backed availability, dynamic pricing, and conversational assistance."
+          copy="Browse live route inventory directly from Supabase and jump into realtime seat selection for the vehicle on that route."
         />
 
         <div class="row g-4">
@@ -91,12 +104,26 @@ function selectRoute(route) {
             </div>
 
             <div class="d-flex flex-column gap-3">
+              <div v-if="bookingStore.loading" class="glass-panel p-4">
+                <h3 class="h5 mb-2">Loading routes</h3>
+                <p class="text-muted-soft mb-0">Fetching the latest route inventory from Supabase.</p>
+              </div>
+              <div v-else-if="bookingStore.error" class="glass-panel p-4">
+                <h3 class="h5 mb-2">Unable to load routes</h3>
+                <p class="text-muted-soft mb-0">{{ bookingStore.error }}</p>
+              </div>
               <SearchResultCard
                 v-for="route in filteredRoutes"
                 :key="route.id"
                 :route="route"
                 @select="selectRoute"
               />
+              <div v-if="!bookingStore.loading && filteredRoutes.length === 0" class="glass-panel p-4">
+                <h3 class="h5 mb-2">No routes found</h3>
+                <p class="text-muted-soft mb-0">
+                  Try adjusting the departure, destination, or filters to broaden the search.
+                </p>
+              </div>
             </div>
           </div>
         </div>

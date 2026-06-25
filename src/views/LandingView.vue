@@ -37,7 +37,7 @@ const metrics = [
 
 <template>
   <MainLayout>
-    <section class="page-section position-relative overflow-hidden">
+    <section class="page-section position-relative">
       <div class="hero-orb orb-a"></div>
       <div class="hero-orb orb-b"></div>
       <div class="hero-orb orb-c"></div>

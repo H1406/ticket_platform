@@ -11,14 +11,25 @@ const emit = defineEmits(['toggle-seat'])
 function seatFill(status) {
   return {
     available: '#4dd2ff',
-    selected: '#39d98a',
-    reserved: '#ffbd59',
-    occupied: '#ff6b7a'
+    held: '#ffbd59',
+    booked: '#ff6b7a'
   }[status]
 }
 
-function seatOpacity(status) {
-  return status === 'occupied' ? 0.75 : 1
+function seatOpacity(status, isHeldByCurrentUser) {
+  if (isHeldByCurrentUser) {
+    return 1
+  }
+
+  return status === 'booked' ? 0.75 : 0.9
+}
+
+function seatLabelFill(seat) {
+  return seat.isHeldByCurrentUser ? '#05251a' : '#05101a'
+}
+
+function seatDisplayFill(seat) {
+  return seat.isHeldByCurrentUser ? '#39d98a' : seatFill(seat.status)
 }
 </script>
 
@@ -29,7 +40,7 @@ function seatOpacity(status) {
         <h3 class="h5 mb-1">Realtime seat canvas</h3>
         <div class="text-muted-soft small">SVG-based layout ready for future sync events and locking states</div>
       </div>
-      <div class="badge-soft">Vehicle view: Premium Coach / Narrow-body cabin</div>
+      <div class="badge-soft">Vehicle view: Live Supabase seat inventory</div>
     </div>
 
     <svg viewBox="0 0 420 370" class="w-100">
@@ -56,8 +67,8 @@ function seatOpacity(status) {
           width="50"
           height="54"
           rx="18"
-          :fill="seatFill(seat.status)"
-          :fill-opacity="seatOpacity(seat.status)"
+          :fill="seatDisplayFill(seat)"
+          :fill-opacity="seatOpacity(seat.status, seat.isHeldByCurrentUser)"
           stroke="rgba(255,255,255,0.22)"
           stroke-width="2"
         />
@@ -67,18 +78,18 @@ function seatOpacity(status) {
           width="34"
           height="12"
           rx="6"
-          :fill="seatFill(seat.status)"
+          :fill="seatDisplayFill(seat)"
           :fill-opacity="0.6"
         />
         <text
           :x="seat.x + 25"
           :y="seat.y + 32"
           text-anchor="middle"
-          fill="#05101a"
+          :fill="seatLabelFill(seat)"
           font-size="14"
           font-weight="700"
         >
-          {{ seat.id }}
+          {{ seat.code }}
         </text>
       </g>
     </svg>

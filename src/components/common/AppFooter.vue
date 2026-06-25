@@ -1,5 +1,5 @@
 <template>
-  <footer class="py-5">
+  <footer class="py-5 mt-auto position-relative">
     <div class="container">
       <div class="glass-panel p-4 p-lg-5">
         <div class="row g-4 align-items-center">

@@ -9,8 +9,13 @@ const model = defineModel({
   <div class="glass-panel p-4">
     <h3 class="h5 mb-3">Filters</h3>
     <div class="mb-3">
-      <label class="form-label text-muted-soft">Price range</label>
-      <input v-model="model.price" type="range" class="form-range" min="20" max="300" />
+      <label class="form-label text-muted-soft">Vehicle type</label>
+      <input
+        v-model="model.vehicleType"
+        type="text"
+        class="form-control"
+        placeholder="Coach, Aircraft, Bus"
+      />
     </div>
     <div class="mb-3">
       <label class="form-label text-muted-soft">Transport type</label>
@@ -18,6 +23,7 @@ const model = defineModel({
         <option value="">All</option>
         <option value="train">Train</option>
         <option value="flight">Flight</option>
+        <option value="bus">Bus</option>
       </select>
     </div>
     <div>

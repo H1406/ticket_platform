@@ -17,6 +17,9 @@ export const bookingApi = {
   searchRoutes(params) {
     return apiClient.get('/routes/search', { params })
   },
+  fetchSeatMap(routeId) {
+    return apiClient.get(`/routes/${routeId}/seats`)
+  },
   createBooking(payload) {
     return apiClient.post('/bookings', payload)
   },

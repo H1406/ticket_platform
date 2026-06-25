@@ -31,29 +31,29 @@ const adminStats = [
     </div>
 
     <div class="row g-4 mb-4">
-      <div v-for="stat in adminStats" :key="stat.label" class="col-sm-6 col-xxl-3">
+      <div v-for="stat in adminStats" :key="stat.label" class="col-12 col-md-6 col-xxl-3">
         <StatCard v-bind="stat" />
       </div>
     </div>
 
-    <div class="row g-4 mb-4">
-      <div class="col-xl-7">
-        <div class="glass-panel p-4 h-100">
+    <div class="dashboard-grid mb-4">
+      <div class="dashboard-col dashboard-col-main">
+        <div class="glass-panel p-4">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h3 class="h5 mb-0">Occupancy chart placeholder</h3>
             <span class="text-muted-soft small">Chart library can be added later</span>
           </div>
-          <div class="d-flex align-items-end gap-3" style="height: 220px;">
-            <div class="bg-info rounded-top-4 w-100" style="height: 60%"></div>
-            <div class="bg-success rounded-top-4 w-100" style="height: 85%"></div>
-            <div class="bg-warning rounded-top-4 w-100" style="height: 72%"></div>
-            <div class="bg-primary rounded-top-4 w-100" style="height: 93%"></div>
-            <div class="bg-danger rounded-top-4 w-100" style="height: 48%"></div>
+          <div class="d-flex align-items-end gap-3 dashboard-chart">
+            <div class="bg-info rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 60%"></div>
+            <div class="bg-success rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 85%"></div>
+            <div class="bg-warning rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 72%"></div>
+            <div class="bg-primary rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 93%"></div>
+            <div class="bg-danger rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 48%"></div>
           </div>
         </div>
       </div>
-      <div class="col-xl-5">
-        <div class="glass-panel p-4 h-100">
+      <div class="dashboard-col dashboard-col-aside">
+        <div class="glass-panel p-4">
           <h3 class="h5 mb-3">Route management</h3>
           <div class="d-flex flex-column gap-3">
             <div class="glass-panel p-3">

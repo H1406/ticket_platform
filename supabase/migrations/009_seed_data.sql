@@ -36,8 +36,8 @@ with vehicle_seats as (
       else 'aisle'
     end as seat_class,
     case 
-      when random() < 0.1 then 'occupied'
-      when random() < 0.15 then 'reserved'
+      when random() < 0.1 then 'booked'
+      when random() < 0.15 then 'held'
       else 'available'
     end as status,
     jsonb_build_object(
