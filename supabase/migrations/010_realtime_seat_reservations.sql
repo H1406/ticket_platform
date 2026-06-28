@@ -117,13 +117,13 @@ declare
 begin
   update public.seats
   set
-    status = 'available',
+    status             = 'available',
     held_by_booking_id = null,
-    held_by_user_id = null,
-    hold_expires_at = null
-  where status = 'held'
-    and hold_expires_at is not null
-    and hold_expires_at <= timezone('utc'::text, now());
+    held_by_user_id    = null,
+    hold_expires_at    = null
+  where seats.status          = 'held'
+    and seats.hold_expires_at is not null
+    and seats.hold_expires_at <= timezone('utc'::text, now());
 
   get diagnostics released_count = row_count;
 
@@ -132,30 +132,30 @@ begin
     status = case
       when exists (
         select 1
-        from public.seats
-        where held_by_booking_id = bookings.id
-          and status = 'booked'
+        from public.seats s
+        where s.held_by_booking_id = bookings.id
+          and s.status = 'booked'
       ) then 'confirmed'
       else 'expired'
     end,
     seat_ids = coalesce((
-      select array_agg(id order by seat_code)
-      from public.seats
-      where held_by_booking_id = bookings.id
-        and status <> 'available'
+      select array_agg(s.id order by s.seat_code)
+      from public.seats s
+      where s.held_by_booking_id = bookings.id
+        and s.status <> 'available'
     ), array[]::uuid[]),
     hold_expires_at = null
-  where status = 'held'
-    and hold_expires_at is not null
-    and hold_expires_at <= timezone('utc'::text, now());
+  where bookings.status = 'held'
+    and bookings.hold_expires_at is not null
+    and bookings.hold_expires_at <= timezone('utc'::text, now());
 
   update public.bookings
   set
-    status = 'draft',
-    seat_ids = array[]::uuid[],
+    status          = 'draft',
+    seat_ids        = array[]::uuid[],
     hold_expires_at = null
-  where status = 'expired'
-    and coalesce(array_length(seat_ids, 1), 0) = 0;
+  where bookings.status = 'expired'
+    and coalesce(array_length(bookings.seat_ids, 1), 0) = 0;
 
   return released_count;
 end;

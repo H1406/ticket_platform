@@ -1,19 +1,68 @@
--- Ticket Platform - Complete Database Schema Setup for Supabase
--- Run this entire script in Supabase SQL Editor to set up all tables
--- OR run individual migration files (001 → 009) for better control
+-- Ticket Platform - Clean Supabase bootstrap schema
+-- Run this on a fresh Supabase project to create the full schema from scratch.
+-- This file is intentionally organized as one coherent setup, without later
+-- patch fragments or duplicate seed blocks.
+
+create extension if not exists pgcrypto;
 
 -- ============================================================================
--- 1. PROFILES TABLE (extends auth.users)
+-- 1. UTILITY FUNCTION
+-- ============================================================================
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = timezone('utc'::text, now());
+  return new;
+end;
+$$;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (
+    id,
+    email,
+    first_name,
+    last_name,
+    avatar_url
+  )
+  values (
+    new.id,
+    coalesce(new.email, ''),
+    new.raw_user_meta_data ->> 'given_name',
+    coalesce(new.raw_user_meta_data ->> 'family_name', new.raw_user_meta_data ->> 'last_name'),
+    new.raw_user_meta_data ->> 'avatar_url'
+  )
+  on conflict (id) do update
+  set
+    email = excluded.email,
+    first_name = coalesce(public.profiles.first_name, excluded.first_name),
+    last_name = coalesce(public.profiles.last_name, excluded.last_name),
+    avatar_url = coalesce(public.profiles.avatar_url, excluded.avatar_url),
+    updated_at = timezone('utc'::text, now());
+
+  return new;
+end;
+$$;
+
+-- ============================================================================
+-- 2. PROFILES TABLE (extends auth.users)
 -- ============================================================================
 create table public.profiles (
-  id uuid references auth.users on delete cascade not null primary key,
+  id uuid primary key references auth.users on delete cascade,
   email text not null,
   first_name text,
   last_name text,
   avatar_url text,
-  role text default 'user' not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  role text not null default 'user',
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.profiles enable row level security;
@@ -34,18 +83,28 @@ create policy "Users can update own profile"
 create index profiles_id_idx on public.profiles(id);
 create index profiles_role_idx on public.profiles(role);
 
+create trigger set_profiles_updated_at
+before update on public.profiles
+for each row
+execute function public.set_updated_at();
+
+create trigger on_auth_user_created
+after insert on auth.users
+for each row
+execute function public.handle_new_user();
+
 -- ============================================================================
--- 2. ROUTES TABLE
+-- 3. ROUTES TABLE
 -- ============================================================================
 create table public.routes (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   transport_type text not null,
   departure text not null,
   destination text not null,
   departure_time time not null,
   arrival_time time not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.routes enable row level security;
@@ -58,8 +117,10 @@ create policy "Only admins can insert routes"
   on public.routes for insert
   with check (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -67,14 +128,18 @@ create policy "Only admins can update routes"
   on public.routes for update
   using (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   )
   with check (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -82,18 +147,23 @@ create index routes_transport_type_idx on public.routes(transport_type);
 create index routes_departure_idx on public.routes(departure);
 create index routes_destination_idx on public.routes(destination);
 
+create trigger set_routes_updated_at
+before update on public.routes
+for each row
+execute function public.set_updated_at();
+
 -- ============================================================================
--- 3. VEHICLES TABLE
+-- 4. VEHICLES TABLE
 -- ============================================================================
 create table public.vehicles (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   route_id uuid not null references public.routes on delete cascade,
   vehicle_code text not null unique,
   vehicle_type text not null,
-  capacity integer not null,
+  capacity integer not null check (capacity > 0),
   deck_layout jsonb,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.vehicles enable row level security;
@@ -106,8 +176,10 @@ create policy "Only admins can insert vehicles"
   on public.vehicles for insert
   with check (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -115,14 +187,18 @@ create policy "Only admins can update vehicles"
   on public.vehicles for update
   using (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   )
   with check (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -130,23 +206,81 @@ create index vehicles_route_id_idx on public.vehicles(route_id);
 create index vehicles_vehicle_code_idx on public.vehicles(vehicle_code);
 create index vehicles_vehicle_type_idx on public.vehicles(vehicle_type);
 
+create trigger set_vehicles_updated_at
+before update on public.vehicles
+for each row
+execute function public.set_updated_at();
+
 -- ============================================================================
--- 4. SEATS TABLE
+-- 5. BOOKINGS TABLE
+-- ============================================================================
+create table public.bookings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles on delete cascade,
+  route_id uuid not null references public.routes on delete cascade,
+  seat_ids uuid[] not null default array[]::uuid[],
+  status text not null default 'draft'
+    check (status in ('draft', 'held', 'confirmed', 'cancelled', 'expired')),
+  hold_expires_at timestamp with time zone,
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
+);
+
+alter table public.bookings enable row level security;
+
+create policy "Users can view their own bookings"
+  on public.bookings for select
+  using (auth.uid() = user_id);
+
+create policy "Admins can view all bookings"
+  on public.bookings for select
+  using (
+    exists (
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
+    )
+  );
+
+create policy "Users can insert their own bookings"
+  on public.bookings for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update their own bookings"
+  on public.bookings for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index bookings_user_id_idx on public.bookings(user_id);
+create index bookings_route_id_idx on public.bookings(route_id);
+create index bookings_status_idx on public.bookings(status);
+create index bookings_created_at_idx on public.bookings(created_at);
+create index bookings_hold_expires_at_idx on public.bookings(hold_expires_at);
+
+create trigger set_bookings_updated_at
+before update on public.bookings
+for each row
+execute function public.set_updated_at();
+
+-- ============================================================================
+-- 6. SEATS TABLE
+-- Created after bookings so held_by_booking_id can reference bookings cleanly.
 -- ============================================================================
 create table public.seats (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   vehicle_id uuid not null references public.vehicles on delete cascade,
   seat_code text not null,
   seat_class text not null,
-  status text not null default 'available',
+  status text not null default 'available'
+    check (status in ('available', 'held', 'booked')),
   held_by_booking_id uuid references public.bookings on delete set null,
   held_by_user_id uuid references public.profiles on delete set null,
   hold_expires_at timestamp with time zone,
   position_meta jsonb,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(vehicle_id, seat_code),
-  constraint seats_status_check check (status in ('available', 'held', 'booked'))
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now()),
+  unique (vehicle_id, seat_code)
 );
 
 alter table public.seats enable row level security;
@@ -170,6 +304,11 @@ create index seats_held_by_booking_id_idx on public.seats(held_by_booking_id);
 create index seats_held_by_user_id_idx on public.seats(held_by_user_id);
 create index seats_hold_expires_at_idx on public.seats(hold_expires_at);
 
+create trigger set_seats_updated_at
+before update on public.seats
+for each row
+execute function public.set_updated_at();
+
 do $$
 begin
   alter publication supabase_realtime add table public.seats;
@@ -179,61 +318,16 @@ end;
 $$;
 
 -- ============================================================================
--- 5. BOOKINGS TABLE
--- ============================================================================
-create table public.bookings (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid not null references public.profiles on delete cascade,
-  route_id uuid not null references public.routes on delete cascade,
-  seat_ids uuid[] default array[]::uuid[],
-  status text not null default 'draft',
-  hold_expires_at timestamp with time zone,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  constraint bookings_status_check check (status in ('draft', 'held', 'confirmed', 'cancelled', 'expired'))
-);
-
-alter table public.bookings enable row level security;
-
-create policy "Users can view their own bookings"
-  on public.bookings for select
-  using (auth.uid() = user_id);
-
-create policy "Admins can view all bookings"
-  on public.bookings for select
-  using (
-    exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
-    )
-  );
-
-create policy "Users can insert their own bookings"
-  on public.bookings for insert
-  with check (auth.uid() = user_id);
-
-create policy "Users can update their own bookings"
-  on public.bookings for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-create index bookings_user_id_idx on public.bookings(user_id);
-create index bookings_route_id_idx on public.bookings(route_id);
-create index bookings_status_idx on public.bookings(status);
-create index bookings_created_at_idx on public.bookings(created_at);
-create index bookings_hold_expires_at_idx on public.bookings(hold_expires_at);
-
--- ============================================================================
--- 6. TICKETS TABLE
+-- 7. TICKETS TABLE
 -- ============================================================================
 create table public.tickets (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   booking_id uuid not null references public.bookings on delete cascade,
   qr_payload text,
-  boarding_status text default 'not_boarded',
-  issued_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  boarding_status text not null default 'not_boarded',
+  issued_at timestamp with time zone not null default timezone('utc'::text, now()),
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.tickets enable row level security;
@@ -242,9 +336,10 @@ create policy "Users can view their own tickets"
   on public.tickets for select
   using (
     exists (
-      select 1 from public.bookings
+      select 1
+      from public.bookings
       where bookings.id = tickets.booking_id
-      and bookings.user_id = auth.uid()
+        and bookings.user_id = auth.uid()
     )
   );
 
@@ -252,8 +347,10 @@ create policy "Admins can view all tickets"
   on public.tickets for select
   using (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -261,32 +358,39 @@ create policy "Users can update their own tickets"
   on public.tickets for update
   using (
     exists (
-      select 1 from public.bookings
+      select 1
+      from public.bookings
       where bookings.id = tickets.booking_id
-      and bookings.user_id = auth.uid()
+        and bookings.user_id = auth.uid()
     )
   )
   with check (
     exists (
-      select 1 from public.bookings
+      select 1
+      from public.bookings
       where bookings.id = tickets.booking_id
-      and bookings.user_id = auth.uid()
+        and bookings.user_id = auth.uid()
     )
   );
 
 create index tickets_booking_id_idx on public.tickets(booking_id);
 create index tickets_boarding_status_idx on public.tickets(boarding_status);
 
+create trigger set_tickets_updated_at
+before update on public.tickets
+for each row
+execute function public.set_updated_at();
+
 -- ============================================================================
--- 7. CHECKINS TABLE
+-- 8. CHECKINS TABLE
 -- ============================================================================
 create table public.checkins (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   ticket_id uuid not null references public.tickets on delete cascade,
-  checked_in_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  checked_in_at timestamp with time zone not null default timezone('utc'::text, now()),
   gate text,
   agent_id uuid references public.profiles on delete set null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.checkins enable row level security;
@@ -295,10 +399,11 @@ create policy "Users can view their own checkins"
   on public.checkins for select
   using (
     exists (
-      select 1 from public.tickets
+      select 1
+      from public.tickets
       join public.bookings on bookings.id = tickets.booking_id
       where tickets.id = checkins.ticket_id
-      and bookings.user_id = auth.uid()
+        and bookings.user_id = auth.uid()
     )
   );
 
@@ -306,8 +411,10 @@ create policy "Admins can view all checkins"
   on public.checkins for select
   using (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -315,8 +422,10 @@ create policy "Admins can insert checkins"
   on public.checkins for insert
   with check (
     exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+      select 1
+      from public.profiles
+      where id = auth.uid()
+        and role = 'admin'
     )
   );
 
@@ -325,17 +434,17 @@ create index checkins_agent_id_idx on public.checkins(agent_id);
 create index checkins_checked_in_at_idx on public.checkins(checked_in_at);
 
 -- ============================================================================
--- 8. NOTIFICATIONS TABLE
+-- 9. NOTIFICATIONS TABLE
 -- ============================================================================
 create table public.notifications (
-  id uuid default gen_random_uuid() primary key,
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles on delete cascade,
   title text not null,
   message text not null,
   channel text default 'in-app',
   read_at timestamp with time zone,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone not null default timezone('utc'::text, now()),
+  updated_at timestamp with time zone not null default timezone('utc'::text, now())
 );
 
 alter table public.notifications enable row level security;
@@ -357,19 +466,14 @@ create index notifications_user_id_idx on public.notifications(user_id);
 create index notifications_read_at_idx on public.notifications(read_at);
 create index notifications_created_at_idx on public.notifications(created_at);
 
--- ============================================================================
--- 9. REALTIME BOOKING FUNCTIONS
--- ============================================================================
-create or replace function public.set_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at = timezone('utc'::text, now());
-  return new;
-end;
-$$;
+create trigger set_notifications_updated_at
+before update on public.notifications
+for each row
+execute function public.set_updated_at();
 
+-- ============================================================================
+-- 10. REALTIME BOOKING FUNCTIONS
+-- ============================================================================
 create or replace function public.release_expired_seat_holds()
 returns integer
 language plpgsql
@@ -381,13 +485,13 @@ declare
 begin
   update public.seats
   set
-    status = 'available',
+    status             = 'available',
     held_by_booking_id = null,
-    held_by_user_id = null,
-    hold_expires_at = null
-  where status = 'held'
-    and hold_expires_at is not null
-    and hold_expires_at <= timezone('utc'::text, now());
+    held_by_user_id    = null,
+    hold_expires_at    = null
+  where seats.status          = 'held'
+    and seats.hold_expires_at is not null
+    and seats.hold_expires_at <= timezone('utc'::text, now());
 
   get diagnostics released_count = row_count;
 
@@ -396,30 +500,30 @@ begin
     status = case
       when exists (
         select 1
-        from public.seats
-        where held_by_booking_id = bookings.id
-          and status = 'booked'
+        from public.seats s
+        where s.held_by_booking_id = bookings.id
+          and s.status = 'booked'
       ) then 'confirmed'
       else 'expired'
     end,
     seat_ids = coalesce((
-      select array_agg(id order by seat_code)
-      from public.seats
-      where held_by_booking_id = bookings.id
-        and status <> 'available'
+      select array_agg(s.id order by s.seat_code)
+      from public.seats s
+      where s.held_by_booking_id = bookings.id
+        and s.status <> 'available'
     ), array[]::uuid[]),
     hold_expires_at = null
-  where status = 'held'
-    and hold_expires_at is not null
-    and hold_expires_at <= timezone('utc'::text, now());
+  where bookings.status = 'held'
+    and bookings.hold_expires_at is not null
+    and bookings.hold_expires_at <= timezone('utc'::text, now());
 
   update public.bookings
   set
-    status = 'draft',
-    seat_ids = array[]::uuid[],
+    status          = 'draft',
+    seat_ids        = array[]::uuid[],
     hold_expires_at = null
-  where status = 'expired'
-    and coalesce(array_length(seat_ids, 1), 0) = 0;
+  where bookings.status = 'expired'
+    and coalesce(array_length(bookings.seat_ids, 1), 0) = 0;
 
   return released_count;
 end;
@@ -444,8 +548,9 @@ as $$
 declare
   v_booking_id uuid;
   v_user_id uuid := auth.uid();
-  v_seat record;
-  v_hold_expires_at timestamp with time zone := timezone('utc'::text, now()) + make_interval(mins => greatest(1, least(p_hold_minutes, 10)));
+  v_seat public.seats%rowtype;
+  v_hold_expires_at timestamp with time zone :=
+    timezone('utc'::text, now()) + make_interval(mins => greatest(1, least(p_hold_minutes, 10)));
 begin
   if v_user_id is null then
     raise exception 'Authentication required';
@@ -477,19 +582,19 @@ begin
   end if;
 
   if p_booking_id is not null then
-    select id
+    select bookings.id
     into v_booking_id
     from public.bookings
-    where id = p_booking_id
-      and user_id = v_user_id
-      and route_id = p_route_id
+    where bookings.id = p_booking_id
+      and bookings.user_id = v_user_id
+      and bookings.route_id = p_route_id
     for update;
   end if;
 
   if v_booking_id is null then
     insert into public.bookings (user_id, route_id, seat_ids, status, hold_expires_at)
     values (v_user_id, p_route_id, array[p_seat_id], 'held', v_hold_expires_at)
-    returning id into v_booking_id;
+    returning bookings.id into v_booking_id;
   end if;
 
   update public.seats
@@ -498,20 +603,20 @@ begin
     held_by_booking_id = v_booking_id,
     held_by_user_id = v_user_id,
     hold_expires_at = v_hold_expires_at
-  where id = p_seat_id;
+  where seats.id = p_seat_id;
 
   update public.bookings
   set
     status = 'held',
     seat_ids = coalesce((
-      select array_agg(id order by seat_code)
-      from public.seats
-      where held_by_booking_id = v_booking_id
-        and status = 'held'
-        and hold_expires_at > timezone('utc'::text, now())
+      select array_agg(s.id order by s.seat_code)
+      from public.seats s
+      where s.held_by_booking_id = v_booking_id
+        and s.status = 'held'
+        and s.hold_expires_at > timezone('utc'::text, now())
     ), array[]::uuid[]),
     hold_expires_at = v_hold_expires_at
-  where id = v_booking_id;
+  where bookings.id = v_booking_id;
 
   return query
   select v_booking_id, p_seat_id, 'held'::text, v_hold_expires_at;
@@ -540,12 +645,12 @@ begin
 
   perform public.release_expired_seat_holds();
 
-  select held_by_booking_id
+  select seats.held_by_booking_id
   into v_booking_id
   from public.seats
-  where id = p_seat_id
-    and held_by_user_id = v_user_id
-    and status = 'held'
+  where seats.id = p_seat_id
+    and seats.held_by_user_id = v_user_id
+    and seats.status = 'held'
   for update;
 
   if p_booking_id is not null and v_booking_id is distinct from p_booking_id then
@@ -558,36 +663,37 @@ begin
     held_by_booking_id = null,
     held_by_user_id = null,
     hold_expires_at = null
-  where id = p_seat_id
-    and held_by_user_id = v_user_id
-    and status = 'held';
+  where seats.id = p_seat_id
+    and seats.held_by_user_id = v_user_id
+    and seats.status = 'held';
 
   if v_booking_id is not null then
     update public.bookings
     set
       seat_ids = coalesce((
-        select array_agg(id order by seat_code)
-        from public.seats
-        where held_by_booking_id = v_booking_id
-          and status = 'held'
-          and hold_expires_at > timezone('utc'::text, now())
+        select array_agg(s.id order by s.seat_code)
+        from public.seats s
+        where s.held_by_booking_id = v_booking_id
+          and s.status = 'held'
+          and s.hold_expires_at > timezone('utc'::text, now())
       ), array[]::uuid[]),
       hold_expires_at = (
-        select max(hold_expires_at)
-        from public.seats
-        where held_by_booking_id = v_booking_id
-          and status = 'held'
+        select max(s.hold_expires_at)
+        from public.seats s
+        where s.held_by_booking_id = v_booking_id
+          and s.status = 'held'
       ),
       status = case
         when exists (
-          select 1 from public.seats
-          where held_by_booking_id = v_booking_id
-            and status = 'held'
+          select 1
+          from public.seats s
+          where s.held_by_booking_id = v_booking_id
+            and s.status = 'held'
         ) then 'held'
         else 'draft'
       end
-    where id = v_booking_id
-      and user_id = v_user_id;
+    where bookings.id = v_booking_id
+      and bookings.user_id = v_user_id;
   end if;
 
   return query
@@ -618,9 +724,9 @@ begin
     held_by_booking_id = null,
     held_by_user_id = null,
     hold_expires_at = null
-  where held_by_booking_id = p_booking_id
-    and held_by_user_id = v_user_id
-    and status = 'held';
+  where seats.held_by_booking_id = p_booking_id
+    and seats.held_by_user_id = v_user_id
+    and seats.status = 'held';
 
   get diagnostics released_count = row_count;
 
@@ -629,9 +735,9 @@ begin
     seat_ids = array[]::uuid[],
     hold_expires_at = null,
     status = case when p_cancel then 'cancelled' else 'draft' end
-  where id = p_booking_id
-    and user_id = v_user_id
-    and status <> 'confirmed';
+  where bookings.id = p_booking_id
+    and bookings.user_id = v_user_id
+    and bookings.status <> 'confirmed';
 
   return released_count;
 end;
@@ -662,9 +768,9 @@ begin
 
   perform 1
   from public.bookings
-  where id = p_booking_id
-    and user_id = v_user_id
-    and status in ('held', 'draft')
+  where bookings.id = p_booking_id
+    and bookings.user_id = v_user_id
+    and bookings.status in ('held', 'draft')
   for update;
 
   if not found then
@@ -673,10 +779,10 @@ begin
 
   perform 1
   from public.seats
-  where held_by_booking_id = p_booking_id
-    and held_by_user_id = v_user_id
-    and status = 'held'
-    and hold_expires_at > v_now
+  where seats.held_by_booking_id = p_booking_id
+    and seats.held_by_user_id = v_user_id
+    and seats.status = 'held'
+    and seats.hold_expires_at > v_now
   for update;
 
   if not found then
@@ -686,11 +792,11 @@ begin
   if exists (
     select 1
     from public.seats
-    where held_by_booking_id = p_booking_id
+    where seats.held_by_booking_id = p_booking_id
       and (
-        status <> 'held'
-        or hold_expires_at is null
-        or hold_expires_at <= v_now
+        seats.status <> 'held'
+        or seats.hold_expires_at is null
+        or seats.hold_expires_at <= v_now
       )
   ) then
     raise exception 'One or more seats are no longer available';
@@ -700,30 +806,30 @@ begin
   set
     status = 'confirmed',
     seat_ids = (
-      select array_agg(id order by seat_code)
-      from public.seats
-      where held_by_booking_id = p_booking_id
-        and status = 'held'
+      select array_agg(s.id order by s.seat_code)
+      from public.seats s
+      where s.held_by_booking_id = p_booking_id
+        and s.status = 'held'
     ),
     hold_expires_at = null
-  where id = p_booking_id
-    and user_id = v_user_id;
+  where bookings.id = p_booking_id
+    and bookings.user_id = v_user_id;
 
   insert into public.tickets (booking_id, qr_payload, boarding_status)
   values (p_booking_id, null, 'not_boarded')
-  returning id into v_ticket_id;
+  returning tickets.id into v_ticket_id;
 
   update public.tickets
   set qr_payload = v_ticket_id::text
-  where id = v_ticket_id;
+  where tickets.id = v_ticket_id;
 
   update public.seats
   set
     status = 'booked',
     hold_expires_at = null
-  where held_by_booking_id = p_booking_id
-    and held_by_user_id = v_user_id
-    and status = 'held';
+  where seats.held_by_booking_id = p_booking_id
+    and seats.held_by_user_id = v_user_id
+    and seats.status = 'held';
 
   return query
   select p_booking_id, v_ticket_id, v_ticket_id::text;
@@ -737,70 +843,83 @@ grant execute on function public.release_booking_holds(uuid, boolean) to authent
 grant execute on function public.confirm_booking(uuid) to authenticated;
 
 -- ============================================================================
--- 10. SEED DATA (Optional - for testing/development)
+-- 11. OPTIONAL SEED DATA
+-- Keep this section only if you want sample data in a fresh project.
 -- ============================================================================
--- Insert sample routes
 insert into public.routes (transport_type, departure, destination, departure_time, arrival_time)
 values
   ('Train', 'Hanoi', 'Da Nang', '08:15', '14:20'),
   ('Flight', 'Ho Chi Minh City', 'Singapore', '09:45', '12:35'),
   ('Train', 'Hue', 'Nha Trang', '21:25', '05:40'),
   ('Bus', 'Hanoi', 'Hai Phong', '06:30', '09:00'),
-  ('Flight', 'Hanoi', 'Ho Chi Minh City', '14:00', '15:45')
-on conflict do nothing;
+  ('Flight', 'Hanoi', 'Ho Chi Minh City', '14:00', '15:45');
 
--- Insert sample vehicles
 insert into public.vehicles (route_id, vehicle_code, vehicle_type, capacity, deck_layout)
-select 
-  r.id,
-  'VEH-' || substr(md5(random()::text), 1, 6),
-  case 
-    when r.transport_type = 'Train' then 'Coach'
-    when r.transport_type = 'Flight' then 'Aircraft'
+select
+  routes.id,
+  'VEH-' || row_number() over (order by routes.id),
+  case
+    when routes.transport_type = 'Train' then 'Coach'
+    when routes.transport_type = 'Flight' then 'Aircraft'
     else 'Bus'
   end,
-  case 
-    when r.transport_type = 'Train' then 120
-    when r.transport_type = 'Flight' then 180
-    else 50
+  case
+    when routes.transport_type = 'Train' then 108
+    when routes.transport_type = 'Flight' then 180
+    else 54
   end,
-  jsonb_build_object('rows', 12, 'columns', 4)
-from public.routes r
-where not exists (select 1 from public.vehicles where route_id = r.id)
-on conflict do nothing;
+  jsonb_build_object(
+    'seat_columns', 9,
+    'layout', '3-3-3',
+    'aisles', jsonb_build_array(3, 6)
+  )
+from public.routes;
 
--- Insert sample seats (first 100 only)
-insert into public.seats (vehicle_id, seat_code, seat_class, status, position_meta)
-with seat_generation as (
-  select 
-    v.id,
-    chr(65 + (row_number() over (partition by v.id order by s.num))::int / 12) || 
-    (((row_number() over (partition by v.id order by s.num))::int - 1) % 12 + 1)::text as seat_code,
-    case 
-      when (row_number() over (partition by v.id order by s.num))::int % 4 in (1, 4) then 'window'
-      else 'aisle'
-    end as seat_class,
-    case 
-      when random() < 0.05 then 'booked'
-      when random() < 0.10 then 'held'
-      else 'available'
-    end as status,
-    jsonb_build_object(
-      'x', (((row_number() over (partition by v.id order by s.num))::int - 1) % 4 * 80 + 40)::int,
-      'y', ((((row_number() over (partition by v.id order by s.num))::int - 1) / 4) * 80 + 40)::int
-    ) as position_meta
-  from public.vehicles v,
-       lateral generate_series(1, 48) as s(num)
-  limit 100
+insert into public.seats (
+  vehicle_id,
+  seat_code,
+  seat_class,
+  status,
+  position_meta
 )
-select * from seat_generation
-on conflict do nothing;
+select
+  vehicles.id,
+  chr(64 + ceil(seat_num::numeric / 9)::int) || (((seat_num - 1) % 9) + 1)::text as seat_code,
+  case ((seat_num - 1) % 9) + 1
+    when 1 then 'window'
+    when 2 then 'middle'
+    when 3 then 'aisle'
+    when 4 then 'aisle'
+    when 5 then 'middle'
+    when 6 then 'aisle'
+    when 7 then 'aisle'
+    when 8 then 'middle'
+    when 9 then 'window'
+  end as seat_class,
+  'available' as status,
+  jsonb_build_object(
+    'row', ceil(seat_num::numeric / 9)::int,
+    'col', ((seat_num - 1) % 9) + 1,
+    'x', case
+      when ((seat_num - 1) % 9) + 1 between 1 and 3
+        then 20 + (((seat_num - 1) % 9)) * 70
+      when ((seat_num - 1) % 9) + 1 between 4 and 6
+        then 260 + (((seat_num - 1) % 9) - 3) * 70
+      else 500 + (((seat_num - 1) % 9) - 6) * 70
+    end,
+    'y', (ceil(seat_num::numeric / 9)::int - 1) * 70 + 20
+  ) as position_meta
+from public.vehicles,
+     lateral generate_series(1, public.vehicles.capacity) as seat_series(seat_num)
+where public.vehicles.capacity <= 234
+order by public.vehicles.id, seat_num;
 
 -- ============================================================================
--- SETUP NOTES
+-- 12. SETUP NOTES
 -- ============================================================================
--- 1. After running this script, create your first admin user
--- 2. Go to Supabase Dashboard > SQL Editor > New Query
--- 3. Run: UPDATE public.profiles SET role = 'admin' WHERE email = 'your-admin-email@example.com';
--- 4. Configure Google OAuth in your Supabase project
--- 5. Update .env file with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+-- 1. Run this file on a fresh Supabase project.
+-- 2. Create at least one auth user, then insert/update the matching profile row.
+-- 3. Promote an admin when needed:
+--    update public.profiles set role = 'admin' where email = 'your-admin-email@example.com';
+-- 4. Enable Google OAuth or other auth providers in Supabase if your app uses them.
+-- 5. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your frontend environment.

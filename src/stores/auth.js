@@ -53,6 +53,35 @@ function normalizeProfile(profile, user) {
   }
 }
 
+async function upsertOwnProfile(user) {
+  if (!user?.id) {
+    return null
+  }
+
+  const metadata = user.user_metadata ?? {}
+  const email = user.email || ''
+
+  const payload = {
+    id: user.id,
+    email,
+    first_name: metadata.given_name || metadata.first_name || null,
+    last_name: metadata.family_name || metadata.last_name || null,
+    avatar_url: metadata.avatar_url || null
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert(payload, { onConflict: 'id' })
+    .select('id, email, first_name, last_name, avatar_url, role')
+    .single()
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
@@ -77,7 +106,7 @@ export const useAuthStore = defineStore('auth', {
     async fetchProfile(userId) {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, avatar_url, role')
+        .select('id, email, first_name, last_name, avatar_url, role')
         .eq('id', userId)
         .maybeSingle()
 
@@ -108,7 +137,12 @@ export const useAuthStore = defineStore('auth', {
       this.user = user
 
       try {
-        const profile = await this.fetchProfile(user.id)
+        let profile = await this.fetchProfile(user.id)
+
+        if (!profile) {
+          profile = await upsertOwnProfile(user)
+        }
+
         this.profile = normalizeProfile(profile, user)
       } catch (error) {
         // TODO: Replace this fallback with a dedicated onboarding/profile completion flow.
