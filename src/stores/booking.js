@@ -1,7 +1,27 @@
 import { defineStore } from 'pinia'
 import { supabase } from '@/services/supabase'
 import { generateTicketQrAssets } from '@/utils/ticketQr'
+import { getTicketTimelineStatus } from '@/utils/ticketTimeline'
 import { useAuthStore } from './auth'
+
+const TICKET_ROW_SELECT = `
+  id,
+  booking_id,
+  qr_payload,
+  boarding_status,
+  issued_at,
+  bookings(
+    id,
+    user_id,
+    route_id,
+    status,
+    created_at,
+    seat_ids,
+    routes(departure, destination, departure_time, arrival_time, transport_type),
+    profiles(first_name, last_name, email)
+  ),
+  checkins(checked_in_at)
+`
 
 const DEFAULT_HOLD_MINUTES = 5
 
@@ -107,15 +127,23 @@ export const useBookingStore = defineStore('booking', {
     activeBookingId: null,
     seatMap: [],
     ticket: null,
+    tickets: [],
+    adminTickets: [],
+    scanResult: null,
     passengerTable: [],
     holdExpiresAt: null,
     loading: false,
     seatMapLoading: false,
     ticketLoading: false,
+    ticketsLoading: false,
+    adminTicketsLoading: false,
+    checkInLoading: false,
     confirmingBooking: false,
     error: '',
     seatMapError: '',
     ticketError: '',
+    ticketsError: '',
+    adminTicketsError: '',
     seatChannel: null
   }),
   getters: {
@@ -596,6 +624,83 @@ export const useBookingStore = defineStore('booking', {
       }
     },
 
+    async mapTicketRows(rows, getPassengerInfo) {
+      const seatIds = Array.from(
+        new Set(rows.flatMap((row) => row.bookings?.seat_ids || []))
+      )
+      let seatMap = new Map()
+
+      if (seatIds.length) {
+        const { data: seatData, error: seatError } = await supabase
+          .from('seats')
+          .select('id, seat_code, seat_class')
+          .in('id', seatIds)
+
+        if (seatError) {
+          throw seatError
+        }
+
+        seatMap = new Map((seatData || []).map((seat) => [seat.id, seat]))
+      }
+
+      return Promise.all(
+        rows.map(async (row) => {
+          const bookingSeatIds = row.bookings?.seat_ids || []
+          const seatCodes = bookingSeatIds
+            .map((seatId) => seatMap.get(seatId)?.seat_code)
+            .filter(Boolean)
+            .sort()
+
+          const { passenger, passengerEmail } = getPassengerInfo(row)
+          const qrFields = await resolveTicketQr(row)
+          const departureTime = row.bookings?.routes?.departure_time || ''
+          const timeline = getTicketTimelineStatus({
+            referenceDate: row.bookings?.created_at,
+            departureTime,
+            boardingStatus: row.boarding_status
+          })
+
+          const checkinTimestamps = (row.checkins || [])
+            .map((checkin) => checkin.checked_in_at)
+            .filter(Boolean)
+            .sort()
+
+          return {
+            id: row.id,
+            bookingId: row.booking_id,
+            route: `${row.bookings?.routes?.departure || ''} → ${row.bookings?.routes?.destination || ''}`,
+            operator:
+              row.bookings?.routes?.transport_type ||
+              `${row.bookings?.routes?.departure || 'Route'} service`,
+            passenger,
+            passengerEmail,
+            departureDate: row.bookings?.created_at
+              ? new Date(row.bookings.created_at).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric'
+                })
+              : '',
+            departureTime,
+            arrivalTime: row.bookings?.routes?.arrival_time || '',
+            seat: seatCodes.join(', ') || 'Seat unavailable',
+            class: `${bookingSeatIds.length} seat(s)`,
+            gate: 'Assigned at check-in',
+            status: row.boarding_status || row.bookings?.status || 'confirmed',
+            boardingStatus: row.boarding_status,
+            isCheckedIn: timeline.isCheckedIn,
+            isExpired: timeline.isExpired,
+            canCheckIn: timeline.canCheckIn,
+            timelineLabel: timeline.label,
+            checkedInAt: checkinTimestamps.at(-1) || null,
+            qrPayload: qrFields.qrPayload,
+            qrCodeDataUrl: qrFields.qrCodeDataUrl,
+            qrCodeSvg: qrFields.qrCodeSvg
+          }
+        })
+      )
+    },
+
     async fetchTicket(ticketId) {
       const authStore = useAuthStore()
 
@@ -610,21 +715,7 @@ export const useBookingStore = defineStore('booking', {
       try {
         const { data, error } = await supabase
           .from('tickets')
-          .select(`
-            id,
-            booking_id,
-            qr_payload,
-            boarding_status,
-            issued_at,
-            bookings(
-              id,
-              route_id,
-              status,
-              created_at,
-              seat_ids,
-              routes(departure, destination, departure_time, arrival_time, transport_type)
-            )
-          `)
+          .select(TICKET_ROW_SELECT)
           .eq('id', ticketId)
           .maybeSingle()
 
@@ -636,53 +727,11 @@ export const useBookingStore = defineStore('booking', {
           throw new Error('Ticket not found.')
         }
 
-        const seatIds = data.bookings?.seat_ids || []
-        let seatCodes = []
-
-        if (seatIds.length) {
-          const { data: seatData, error: seatError } = await supabase
-            .from('seats')
-            .select('id, seat_code, seat_class')
-            .in('id', seatIds)
-
-          if (seatError) {
-            throw seatError
-          }
-
-          seatCodes = (seatData || []).map((seat) => seat.seat_code).sort()
-        }
-
         const passenger = formatPassengerName(authStore.profile, authStore.user)
-        const qrFields = await resolveTicketQr(data)
+        const passengerEmail = authStore.profile?.email || authStore.user?.email || ''
+        const [mapped] = await this.mapTicketRows([data], () => ({ passenger, passengerEmail }))
 
-        this.ticket = {
-          id: data.id,
-          bookingId: data.booking_id,
-          route: `${data.bookings?.routes?.departure || ''} → ${data.bookings?.routes?.destination || ''}`,
-          operator:
-            this.selectedRoute?.operator ||
-            data.bookings?.routes?.transport_type ||
-            `${data.bookings?.routes?.departure || 'Route'} service`,
-          passenger,
-          passengerEmail: authStore.profile?.email || authStore.user?.email || '',
-          departureDate: data.bookings?.created_at
-            ? new Date(data.bookings.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-              })
-            : '',
-          departureTime: data.bookings?.routes?.departure_time || '',
-          arrivalTime: data.bookings?.routes?.arrival_time || '',
-          seat: seatCodes.join(', ') || 'Seat unavailable',
-          class: `${seatIds.length} seat(s)`,
-          gate: 'Assigned at check-in',
-          status: data.boarding_status || data.bookings?.status || 'confirmed',
-          qrPayload: qrFields.qrPayload,
-          qrCodeDataUrl: qrFields.qrCodeDataUrl,
-          qrCodeSvg: qrFields.qrCodeSvg
-        }
-
+        this.ticket = mapped
         return this.ticket
       } catch (err) {
         this.ticketError = err.message || 'Failed to load ticket'
@@ -721,6 +770,126 @@ export const useBookingStore = defineStore('booking', {
         return null
       } finally {
         this.ticketLoading = false
+      }
+    },
+
+    async fetchUserTickets() {
+      const authStore = useAuthStore()
+
+      if (!authStore.user?.id) {
+        this.tickets = []
+        return
+      }
+
+      this.ticketsLoading = true
+      this.ticketsError = ''
+
+      try {
+        const { data, error } = await supabase
+          .from('tickets')
+          .select(TICKET_ROW_SELECT)
+          .eq('bookings.user_id', authStore.user.id)
+          .order('issued_at', { ascending: false })
+
+        if (error) {
+          throw error
+        }
+
+        const rows = (data || []).filter((row) => row.bookings)
+        const passenger = formatPassengerName(authStore.profile, authStore.user)
+        const passengerEmail = authStore.profile?.email || authStore.user?.email || ''
+
+        this.tickets = await this.mapTicketRows(rows, () => ({ passenger, passengerEmail }))
+      } catch (err) {
+        this.ticketsError = err.message || 'Failed to fetch tickets'
+        this.tickets = []
+      } finally {
+        this.ticketsLoading = false
+      }
+    },
+
+    async fetchAdminTickets() {
+      this.adminTicketsLoading = true
+      this.adminTicketsError = ''
+
+      try {
+        const { data, error } = await supabase
+          .from('tickets')
+          .select(TICKET_ROW_SELECT)
+          .order('issued_at', { ascending: false })
+
+        if (error) {
+          throw error
+        }
+
+        const rows = (data || []).filter((row) => row.bookings)
+
+        this.adminTickets = await this.mapTicketRows(rows, (row) => ({
+          passenger: formatPassengerName(
+            {
+              firstName: row.bookings?.profiles?.first_name,
+              lastName: row.bookings?.profiles?.last_name
+            },
+            null
+          ),
+          passengerEmail: row.bookings?.profiles?.email || ''
+        }))
+      } catch (err) {
+        this.adminTicketsError = err.message || 'Failed to fetch tickets'
+        this.adminTickets = []
+      } finally {
+        this.adminTicketsLoading = false
+      }
+    },
+
+    async checkInTicketFromQr(qrPayload) {
+      const payload = String(qrPayload || '').trim()
+
+      if (!payload) {
+        this.scanResult = { status: 'error', message: 'Empty QR payload' }
+        return this.scanResult
+      }
+
+      this.checkInLoading = true
+
+      try {
+        const { data, error } = await supabase.rpc('check_in_ticket', {
+          p_qr_payload: payload
+        })
+
+        if (error) {
+          throw error
+        }
+
+        const row = Array.isArray(data) ? data[0] : data
+
+        if (!row) {
+          throw new Error('No response from check-in')
+        }
+
+        this.scanResult = {
+          status: row.result_status,
+          ticketId: row.ticket_id,
+          bookingId: row.booking_id,
+          boardingStatus: row.boarding_status,
+          checkedInAt: row.checked_in_at,
+          passengerName: row.passenger_name,
+          route:
+            row.route_departure && row.route_destination
+              ? `${row.route_departure} → ${row.route_destination}`
+              : ''
+        }
+
+        if (row.result_status === 'checked_in') {
+          await this.fetchAdminTickets()
+        }
+
+        return this.scanResult
+      } catch (err) {
+        this.scanResult = { status: 'error', message: err.message || 'Check-in failed' }
+        return this.scanResult
+      } finally {
+        this.checkInLoading = false
       }
     }
   }

@@ -1,5 +1,11 @@
 <script setup>
-const navItems = ['Overview', 'Boarding', 'Passengers', 'Routes', 'Notifications']
+const navItems = [
+  { label: 'Overview', to: { name: 'admin' } },
+  { label: 'Tickets & Check-in', to: { name: 'admin-tickets' } },
+  { label: 'Passengers', to: null },
+  { label: 'Routes', to: null },
+  { label: 'Notifications', to: null }
+]
 </script>
 
 <template>
@@ -13,13 +19,19 @@ const navItems = ['Overview', 'Boarding', 'Passengers', 'Routes', 'Notifications
     </div>
 
     <div class="d-flex flex-column gap-2">
-      <button
-        v-for="item in navItems"
-        :key="item"
-        class="btn btn-tf-secondary text-start"
-      >
-        {{ item }}
-      </button>
+      <template v-for="item in navItems" :key="item.label">
+        <router-link
+          v-if="item.to"
+          :to="item.to"
+          class="btn btn-tf-secondary text-start"
+          active-class="btn-tf-primary"
+        >
+          {{ item.label }}
+        </router-link>
+        <button v-else class="btn btn-tf-secondary text-start" disabled>
+          {{ item.label }}
+        </button>
+      </template>
     </div>
 
     <div class="glass-panel p-3 mt-4">
