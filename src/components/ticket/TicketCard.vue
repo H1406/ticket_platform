@@ -14,7 +14,10 @@ defineProps({
             <h2 class="h3 mb-1">{{ ticket.route }}</h2>
             <div class="text-muted-soft">{{ ticket.operator }}</div>
           </div>
-          <div class="badge-soft">{{ ticket.status }}</div>
+          <div class="d-flex gap-2">
+            <div class="badge-soft">{{ ticket.status }}</div>
+            <div v-if="ticket.isExpired" class="badge-soft">Expired</div>
+          </div>
         </div>
 
         <div class="row g-3">
@@ -28,7 +31,8 @@ defineProps({
           <div class="col-sm-6">
             <div class="glass-panel p-3 h-100">
               <div class="small text-muted-soft">Ticket ID</div>
-              <div class="fw-semibold">{{ ticket.id }}</div>
+              <div class="fw-semibold text-truncate">{{ ticket.id }}</div>
+              <div class="text-muted-soft small text-truncate">Booking: {{ ticket.bookingId }}</div>
             </div>
           </div>
           <div class="col-sm-4">
