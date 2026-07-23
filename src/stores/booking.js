@@ -16,6 +16,7 @@ const TICKET_ROW_SELECT = `
     route_id,
     status,
     created_at,
+    travel_date,
     seat_ids,
     routes(departure, destination, departure_time, arrival_time, transport_type),
     profiles(first_name, last_name, email)
@@ -24,6 +25,23 @@ const TICKET_ROW_SELECT = `
 `
 
 const DEFAULT_HOLD_MINUTES = 5
+
+function formatDateInputValue(date = new Date()) {
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
+}
+
+function formatTravelDateLabel(dateValue) {
+  if (!dateValue) {
+    return ''
+  }
+
+  return new Date(`${dateValue}T00:00:00`).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
+}
 
 function calculateDurationLabel(departureTime, arrivalTime) {
   if (!departureTime || !arrivalTime) {
@@ -123,6 +141,7 @@ export const useBookingStore = defineStore('booking', {
     notifications: [],
     routes: [],
     selectedRoute: null,
+    selectedTravelDate: '',
     activeVehicleId: null,
     activeBookingId: null,
     seatMap: [],
@@ -195,12 +214,13 @@ export const useBookingStore = defineStore('booking', {
       }
     },
 
-    async selectRoute(routeId) {
+    async selectRoute(routeId, travelDate = this.selectedTravelDate) {
       if (!this.routes.length) {
         await this.fetchRoutes()
       }
 
       this.selectedRoute = this.routes.find((route) => route.id === routeId) || null
+      this.selectedTravelDate = travelDate || formatDateInputValue()
       this.activeVehicleId = this.selectedRoute?.vehicles?.[0]?.id || null
       this.activeBookingId = null
       this.seatMap = []
@@ -227,6 +247,7 @@ export const useBookingStore = defineStore('booking', {
             id,
             status,
             created_at,
+            travel_date,
             routes(departure, destination, departure_time),
             seat_ids
           `)
@@ -242,11 +263,7 @@ export const useBookingStore = defineStore('booking', {
           route: `${booking.routes?.departure || ''} to ${booking.routes?.destination || ''}`,
           mode: 'Transportation',
           departure: booking.routes?.departure_time || '',
-          date: new Date(booking.created_at).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-          }),
+          date: formatTravelDateLabel(booking.travel_date) || formatTravelDateLabel(booking.created_at?.slice(0, 10)),
           seat: Array.isArray(booking.seat_ids) ? `${booking.seat_ids.length} seat(s)` : '0 seat(s)',
           status: booking.status || 'draft'
         }))
@@ -395,7 +412,7 @@ export const useBookingStore = defineStore('booking', {
       }
     },
 
-    async fetchSeatMap(routeId = this.selectedRoute?.id) {
+    async fetchSeatMap(routeId = this.selectedRoute?.id, travelDate = this.selectedTravelDate) {
       const authStore = useAuthStore()
 
       if (!routeId) {
@@ -404,8 +421,10 @@ export const useBookingStore = defineStore('booking', {
       }
 
       if (!this.selectedRoute || this.selectedRoute.id !== routeId) {
-        await this.selectRoute(routeId)
+        await this.selectRoute(routeId, travelDate)
       }
+
+      this.selectedTravelDate = travelDate || this.selectedTravelDate || formatDateInputValue()
 
       this.seatMapLoading = true
       this.seatMapError = ''
@@ -442,9 +461,32 @@ export const useBookingStore = defineStore('booking', {
           throw error
         }
 
-        this.seatMap = (data || []).map((seat) =>
-          mapSeatRecord(seat, authStore.user?.id, this.activeBookingId)
-        )
+        const { data: bookedBookings, error: bookedBookingsError } = await supabase
+          .from('bookings')
+          .select('seat_ids')
+          .eq('route_id', routeId)
+          .eq('travel_date', this.selectedTravelDate)
+          .eq('status', 'confirmed')
+
+        if (bookedBookingsError) {
+          throw bookedBookingsError
+        }
+
+        const bookedSeatIds = new Set((bookedBookings || []).flatMap((booking) => booking.seat_ids || []))
+
+        this.seatMap = (data || []).map((seat) => {
+          const mappedSeat = mapSeatRecord(seat, authStore.user?.id, this.activeBookingId)
+
+          if (bookedSeatIds.has(seat.id)) {
+            return {
+              ...mappedSeat,
+              status: 'booked',
+              isHeldByCurrentUser: false
+            }
+          }
+
+          return mappedSeat
+        })
 
         const activeHeldSeat = this.seatMap.find((seat) => seat.isHeldByCurrentUser)
         this.activeBookingId = activeHeldSeat?.heldByBookingId || null
@@ -524,7 +566,8 @@ export const useBookingStore = defineStore('booking', {
             p_route_id: this.selectedRoute?.id,
             p_seat_id: seat.id,
             p_booking_id: this.activeBookingId,
-            p_hold_minutes: DEFAULT_HOLD_MINUTES
+            p_hold_minutes: DEFAULT_HOLD_MINUTES,
+            p_travel_date: this.selectedTravelDate
           })
 
           if (error) {
@@ -587,12 +630,18 @@ export const useBookingStore = defineStore('booking', {
         return null
       }
 
+      if (!this.selectedTravelDate) {
+        this.ticketError = 'Select a travel date before confirming.'
+        return null
+      }
+
       this.confirmingBooking = true
       this.ticketError = ''
 
       try {
         const { data, error } = await supabase.rpc('confirm_booking', {
-          p_booking_id: this.activeBookingId
+          p_booking_id: this.activeBookingId,
+          p_travel_date: this.selectedTravelDate
         })
 
         if (error) {
@@ -654,10 +703,12 @@ export const useBookingStore = defineStore('booking', {
           const { passenger, passengerEmail } = getPassengerInfo(row)
           const qrFields = await resolveTicketQr(row)
           const departureTime = row.bookings?.routes?.departure_time || ''
+          const travelDate = row.bookings?.travel_date || row.bookings?.created_at
           const timeline = getTicketTimelineStatus({
-            referenceDate: row.bookings?.created_at,
+            travelDate,
             departureTime,
-            boardingStatus: row.boarding_status
+            boardingStatus: row.boarding_status,
+            referenceDate: row.bookings?.created_at
           })
 
           const checkinTimestamps = (row.checkins || [])
@@ -674,13 +725,7 @@ export const useBookingStore = defineStore('booking', {
               `${row.bookings?.routes?.departure || 'Route'} service`,
             passenger,
             passengerEmail,
-            departureDate: row.bookings?.created_at
-              ? new Date(row.bookings.created_at).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                })
-              : '',
+            departureDate: formatTravelDateLabel(String(travelDate || '').slice(0, 10)),
             departureTime,
             arrivalTime: row.bookings?.routes?.arrival_time || '',
             seat: seatCodes.join(', ') || 'Seat unavailable',

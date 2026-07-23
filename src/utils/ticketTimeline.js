@@ -1,12 +1,11 @@
-// The schema has no `travel_date` / `departure_at` timestamp on `routes` or `bookings` —
-// only a `time`-only `routes.departure_time`. As the best available approximation we combine
-// the booking's `created_at` date with the route's departure time to get a departure instant.
-export function resolveDepartureDateTime({ referenceDate, departureTime }) {
-  if (!referenceDate) {
+export function resolveDepartureDateTime({ travelDate, departureTime, referenceDate }) {
+  const dateValue = travelDate || referenceDate
+
+  if (!dateValue) {
     return null
   }
 
-  const base = new Date(referenceDate)
+  const base = new Date(dateValue)
   if (Number.isNaN(base.getTime())) {
     return null
   }
@@ -19,8 +18,15 @@ export function resolveDepartureDateTime({ referenceDate, departureTime }) {
   return base
 }
 
-export function getTicketTimelineStatus({ referenceDate, departureTime, boardingStatus, now = new Date() }) {
-  const departureDateTime = resolveDepartureDateTime({ referenceDate, departureTime })
+export function getTicketTimelineStatus({
+  travelDate,
+  departureTime,
+  boardingStatus,
+  now = new Date(),
+  referenceDate
+}) {
+  // Legacy rows created before `bookings.travel_date` fall back to their booking date.
+  const departureDateTime = resolveDepartureDateTime({ travelDate, departureTime, referenceDate })
   const isCheckedIn = boardingStatus === 'checked_in'
   const isExpired = Boolean(departureDateTime) && now.getTime() > departureDateTime.getTime()
 

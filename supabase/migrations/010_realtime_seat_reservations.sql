@@ -36,6 +36,19 @@ create index if not exists seats_held_by_user_id_idx on public.seats(held_by_use
 create index if not exists seats_hold_expires_at_idx on public.seats(hold_expires_at);
 create index if not exists bookings_hold_expires_at_idx on public.bookings(hold_expires_at);
 
+alter table public.bookings
+  add column if not exists travel_date date;
+
+update public.bookings
+set travel_date = created_at::date
+where travel_date is null;
+
+alter table public.bookings
+  alter column travel_date set not null;
+
+create index if not exists bookings_travel_date_idx on public.bookings(travel_date);
+create index if not exists bookings_route_travel_date_idx on public.bookings(route_id, travel_date);
+
 do $$
 begin
   alter publication supabase_realtime add table public.seats;
@@ -165,7 +178,8 @@ create or replace function public.hold_seat(
   p_route_id uuid,
   p_seat_id uuid,
   p_booking_id uuid default null,
-  p_hold_minutes integer default 5
+  p_hold_minutes integer default 5,
+  p_travel_date date default timezone('utc'::text, now())::date
 )
 returns table (
   booking_id uuid,
@@ -181,6 +195,7 @@ declare
   v_booking_id uuid;
   v_user_id uuid := auth.uid();
   v_seat record;
+  v_travel_date date := coalesce(p_travel_date, timezone('utc'::text, now())::date);
   v_hold_expires_at timestamp with time zone := timezone('utc'::text, now()) + make_interval(mins => greatest(1, least(p_hold_minutes, 10)));
 begin
   if v_user_id is null then
@@ -201,7 +216,14 @@ begin
     raise exception 'Seat not found for route';
   end if;
 
-  if v_seat.status = 'booked' then
+  if exists (
+    select 1
+    from public.bookings b
+    where b.route_id = p_route_id
+      and b.travel_date = v_travel_date
+      and b.status = 'confirmed'
+      and p_seat_id = any(b.seat_ids)
+  ) then
     raise exception 'Seat is already booked';
   end if;
 
@@ -223,8 +245,8 @@ begin
   end if;
 
   if v_booking_id is null then
-    insert into public.bookings (user_id, route_id, seat_ids, status, hold_expires_at)
-    values (v_user_id, p_route_id, array[p_seat_id], 'held', v_hold_expires_at)
+    insert into public.bookings (user_id, route_id, travel_date, seat_ids, status, hold_expires_at)
+    values (v_user_id, p_route_id, v_travel_date, array[p_seat_id], 'held', v_hold_expires_at)
     returning id into v_booking_id;
   end if;
 
@@ -239,6 +261,7 @@ begin
   update public.bookings
   set
     status = 'held',
+    travel_date = v_travel_date,
     seat_ids = coalesce((
       select array_agg(id order by seat_code)
       from public.seats
@@ -374,7 +397,8 @@ end;
 $$;
 
 create or replace function public.confirm_booking(
-  p_booking_id uuid
+  p_booking_id uuid,
+  p_travel_date date default null
 )
 returns table (
   booking_id uuid,
@@ -389,6 +413,8 @@ declare
   v_user_id uuid := auth.uid();
   v_ticket_id uuid;
   v_now timestamp with time zone := timezone('utc'::text, now());
+  v_route_id uuid;
+  v_travel_date date;
 begin
   if v_user_id is null then
     raise exception 'Authentication required';
@@ -396,14 +422,15 @@ begin
 
   perform public.release_expired_seat_holds();
 
-  perform 1
+  select bookings.route_id, coalesce(p_travel_date, bookings.travel_date, bookings.created_at::date)
+  into v_route_id, v_travel_date
   from public.bookings
   where id = p_booking_id
     and user_id = v_user_id
     and status in ('held', 'draft')
   for update;
 
-  if not found then
+  if v_route_id is null then
     raise exception 'Booking was not found';
   end if;
 
@@ -432,9 +459,27 @@ begin
     raise exception 'One or more seats are no longer available';
   end if;
 
+  if exists (
+    select 1
+    from public.bookings b
+    where b.route_id = v_route_id
+      and b.travel_date = v_travel_date
+      and b.status = 'confirmed'
+      and b.id <> p_booking_id
+      and b.seat_ids && (
+        select array_agg(s.id)
+        from public.seats s
+        where s.held_by_booking_id = p_booking_id
+          and s.status = 'held'
+      )
+  ) then
+    raise exception 'One or more seats are already booked for this travel date';
+  end if;
+
   update public.bookings
   set
     status = 'confirmed',
+    travel_date = v_travel_date,
     seat_ids = (
       select array_agg(id order by seat_code)
       from public.seats
@@ -455,7 +500,9 @@ begin
 
   update public.seats
   set
-    status = 'booked',
+    status = 'available',
+    held_by_booking_id = null,
+    held_by_user_id = null,
     hold_expires_at = null
   where held_by_booking_id = p_booking_id
     and held_by_user_id = v_user_id
@@ -467,7 +514,7 @@ end;
 $$;
 
 grant execute on function public.release_expired_seat_holds() to authenticated, anon;
-grant execute on function public.hold_seat(uuid, uuid, uuid, integer) to authenticated;
+grant execute on function public.hold_seat(uuid, uuid, uuid, integer, date) to authenticated;
 grant execute on function public.release_seat_hold(uuid, uuid) to authenticated;
 grant execute on function public.release_booking_holds(uuid, boolean) to authenticated;
-grant execute on function public.confirm_booking(uuid) to authenticated;
+grant execute on function public.confirm_booking(uuid, date) to authenticated;

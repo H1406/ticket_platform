@@ -10,6 +10,11 @@ import { useBookingStore } from '@/stores/booking'
 const router = useRouter()
 const bookingStore = useBookingStore()
 
+function formatDateInputValue(date = new Date()) {
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
+}
+
 onMounted(async () => {
   if (bookingStore.routes.length === 0) {
     await bookingStore.fetchRoutes()
@@ -19,7 +24,7 @@ onMounted(async () => {
 const form = reactive({
   departure: '',
   destination: '',
-  departureDate: '',
+  departureDate: formatDateInputValue(),
   passengers: 1
 })
 
@@ -60,9 +65,16 @@ const filteredRoutes = computed(() =>
 )
 
 async function selectRoute(route) {
+  if (!form.departureDate) {
+    form.departureDate = formatDateInputValue()
+  }
+
   await bookingStore.selectRoute(route.id)
   bookingStore.resetSeatHold()
-  router.push({ name: 'seat-selection', query: { routeId: route.id } })
+  router.push({
+    name: 'seat-selection',
+    query: { routeId: route.id, travelDate: form.departureDate }
+  })
 }
 </script>
 
@@ -94,7 +106,7 @@ async function selectRoute(route) {
                 </div>
                 <div class="col-md-6 col-lg-3">
                   <label class="form-label">Departure date</label>
-                  <input v-model="form.departureDate" type="date" class="form-control" />
+                  <input v-model="form.departureDate" type="date" class="form-control" required />
                 </div>
                 <div class="col-md-6 col-lg-3">
                   <label class="form-label">Passengers</label>

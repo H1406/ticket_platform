@@ -35,11 +35,7 @@ with vehicle_seats as (
       when (row_number() over (order by seats.letter)::int) in (1, 4) then 'window'
       else 'aisle'
     end as seat_class,
-    case 
-      when random() < 0.1 then 'booked'
-      when random() < 0.15 then 'held'
-      else 'available'
-    end as status,
+    'available' as status,
     jsonb_build_object(
       'x', ((row_number() over (order by seats.letter)::int - 1) * 80 + 40)::int,
       'y', (seats.number * 80 + 40)::int

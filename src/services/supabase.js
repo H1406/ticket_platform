@@ -26,7 +26,7 @@ export const dbTables = {
     'hold_expires_at',
     'position_meta'
   ],
-  bookings: ['id', 'user_id', 'route_id', 'seat_ids', 'status', 'hold_expires_at'],
+  bookings: ['id', 'user_id', 'route_id', 'seat_ids', 'status', 'travel_date', 'hold_expires_at'],
   tickets: ['id', 'booking_id', 'qr_payload', 'boarding_status', 'issued_at'],
   checkins: ['id', 'ticket_id', 'checked_in_at', 'gate', 'agent_id'],
   notifications: ['id', 'user_id', 'title', 'message', 'channel', 'read_at']

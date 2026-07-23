@@ -17,14 +17,30 @@ const bookingStore = useBookingStore()
 const expiresAt = ref(bookingStore.holdExpiresAt)
 const { minutes, seconds, isExpired } = useReservationCountdown(expiresAt)
 
+function formatDateInputValue(date = new Date()) {
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
+}
+
 const selectedSummary = computed(() => bookingStore.selectedSeatCodes.join(', '))
 const activeRoute = computed(() => bookingStore.selectedRoute)
 const canContinue = computed(() => bookingStore.selectedSeatCount > 0 && !bookingStore.confirmingBooking)
 const passengerSummary = computed(() =>
   `${authStore.fullName} · ${authStore.profile?.email || authStore.user?.email || ''}`
 )
+const travelDateLabel = computed(() => {
+  if (!bookingStore.selectedTravelDate) {
+    return 'Date not selected'
+  }
 
-async function loadSeatSelection(routeId) {
+  return new Date(`${bookingStore.selectedTravelDate}T00:00:00`).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
+})
+
+async function loadSeatSelection(routeId, travelDate = formatDateInputValue()) {
   if (!routeId) {
     await bookingStore.fetchRoutes()
 
@@ -33,12 +49,15 @@ async function loadSeatSelection(routeId) {
       return
     }
 
-    await router.replace({ name: 'seat-selection', query: { routeId: fallbackRouteId } })
+    await router.replace({
+      name: 'seat-selection',
+      query: { routeId: fallbackRouteId, travelDate }
+    })
     return
   }
 
-  await bookingStore.selectRoute(routeId)
-  await bookingStore.fetchSeatMap(routeId)
+  await bookingStore.selectRoute(routeId, travelDate)
+  await bookingStore.fetchSeatMap(routeId, travelDate)
   bookingStore.subscribeToSeatUpdates()
 }
 
@@ -83,10 +102,11 @@ watch(isExpired, async (expired) => {
 })
 
 watch(
-  () => route.query.routeId,
-  async (routeId) => {
+  () => [route.query.routeId, route.query.travelDate],
+  async ([routeId, travelDate]) => {
     if (typeof routeId === 'string') {
-      await loadSeatSelection(routeId)
+      const selectedTravelDate = typeof travelDate === 'string' ? travelDate : formatDateInputValue()
+      await loadSeatSelection(routeId, selectedTravelDate)
     }
   },
   { immediate: true }
@@ -94,7 +114,9 @@ watch(
 
 onMounted(() => {
   if (typeof route.query.routeId !== 'string') {
-    void loadSeatSelection('')
+    const selectedTravelDate =
+      typeof route.query.travelDate === 'string' ? route.query.travelDate : formatDateInputValue()
+    void loadSeatSelection('', selectedTravelDate)
   }
 
   window.addEventListener('pagehide', handlePageHide)
@@ -163,6 +185,14 @@ onBeforeRouteLeave(async (to) => {
                 <div class="fw-semibold">{{ passengerSummary }}</div>
                 <div class="text-muted-soft small mt-1">
                   Ticket details will be autofilled from your Supabase account profile.
+                </div>
+              </div>
+
+              <div class="glass-panel p-3 mt-3">
+                <div class="small text-muted-soft">Travel date</div>
+                <div class="fw-semibold">{{ travelDateLabel }}</div>
+                <div class="text-muted-soft small mt-1">
+                  Departs at {{ activeRoute?.departureTime || 'the scheduled time' }}.
                 </div>
               </div>
 

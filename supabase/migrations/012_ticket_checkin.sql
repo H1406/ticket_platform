@@ -42,6 +42,7 @@ declare
   v_ticket_id uuid;
   v_booking_id uuid;
   v_boarding_status text;
+  v_travel_date date;
   v_booking_created_at timestamp with time zone;
   v_departure_time time;
   v_route_departure text;
@@ -62,11 +63,11 @@ begin
 
   select
     t.id, t.booking_id, t.boarding_status,
-    b.created_at, r.departure_time, r.departure, r.destination,
+    b.travel_date, b.created_at, r.departure_time, r.departure, r.destination,
     trim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, ''))
   into
     v_ticket_id, v_booking_id, v_boarding_status,
-    v_booking_created_at, v_departure_time, v_route_departure, v_route_destination,
+    v_travel_date, v_booking_created_at, v_departure_time, v_route_departure, v_route_destination,
     v_passenger_name
   from public.tickets t
   join public.bookings b on b.id = t.booking_id
@@ -93,7 +94,8 @@ begin
     return;
   end if;
 
-  v_departure_at := date_trunc('day', v_booking_created_at) + coalesce(v_departure_time, '00:00'::time);
+  v_departure_at := coalesce(v_travel_date, v_booking_created_at::date)::timestamp
+    + coalesce(v_departure_time, '00:00'::time);
 
   if v_now > v_departure_at then
     return query select

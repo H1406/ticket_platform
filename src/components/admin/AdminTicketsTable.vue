@@ -18,7 +18,8 @@ defineProps({
             <th>Passenger</th>
             <th>Route</th>
             <th>Seat</th>
-            <th>Departure</th>
+            <th>Travel date</th>
+            <th>Departure time</th>
             <th>Boarding</th>
             <th>Expiry</th>
             <th>Last check-in</th>
@@ -30,13 +31,14 @@ defineProps({
             <td>{{ ticket.passenger }}</td>
             <td>{{ ticket.route }}</td>
             <td>{{ ticket.seat }}</td>
-            <td>{{ ticket.departureDate }} {{ ticket.departureTime }}</td>
+            <td>{{ ticket.departureDate }}</td>
+            <td>{{ ticket.departureTime }}</td>
             <td><span class="badge-soft">{{ ticket.isCheckedIn ? 'Checked in' : 'Not boarded' }}</span></td>
             <td><span class="badge-soft">{{ ticket.isExpired ? 'Expired' : 'Valid' }}</span></td>
             <td>{{ ticket.checkedInAt ? new Date(ticket.checkedInAt).toLocaleString() : '—' }}</td>
           </tr>
           <tr v-if="!tickets.length">
-            <td colspan="8" class="text-muted-soft text-center py-4">No tickets match the current filters.</td>
+            <td colspan="9" class="text-muted-soft text-center py-4">No tickets match the current filters.</td>
           </tr>
         </tbody>
       </table>

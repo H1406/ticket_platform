@@ -60,7 +60,13 @@ async function handleSignOut() {
             Sign In
           </RouterLink>
           <template v-else>
-            <RouterLink to="/admin" class="btn btn-tf-secondary">Admin</RouterLink>
+            <RouterLink
+              v-if="authStore.profile?.role === 'admin' || authStore.profile?.isAdmin"
+              to="/admin"
+              class="btn btn-tf-secondary"
+            >
+              Admin
+            </RouterLink>
             <button class="btn btn-tf-secondary" @click="handleSignOut">Logout</button>
           </template>
         </div>
