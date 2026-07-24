@@ -329,9 +329,9 @@ begin
     return;
   end if;
 
-  insert into public.checkins (ticket_id, gate, agent_id)
+  insert into public.checkins as inserted_checkin (ticket_id, gate, agent_id)
   values (v_ticket_id, p_gate, auth.uid())
-  returning checked_in_at into v_checked_in_at;
+  returning inserted_checkin.checked_in_at into v_checked_in_at;
 
   update public.tickets
   set boarding_status = 'checked_in'

@@ -60,20 +60,59 @@ defineProps({
       </div>
 
       <div class="col-lg-4">
-        <div class="glass-panel p-4 text-center">
+        <div class="glass-panel p-4 text-center ticket-qr-panel">
+          <div class="ticket-qr-frame mx-auto mb-3">
           <img
             v-if="ticket.qrCodeDataUrl"
             :src="ticket.qrCodeDataUrl"
             alt="Ticket QR code"
-            class="mx-auto mb-3 rounded-4 bg-light p-2"
-            style="width: 180px; height: 180px;"
+            class="ticket-qr-image"
           />
-          <div v-else class="mx-auto mb-3 d-grid place-items-center rounded-4 bg-light text-dark" style="width: 180px; height: 180px;">
+          <div v-else class="ticket-qr-placeholder">
             QR
           </div>
-          <div class="small text-muted-soft">QR payload: {{ ticket.qrPayload }}</div>
+          </div>
+          <div class="small text-muted-soft ticket-qr-payload">QR payload: {{ ticket.qrPayload }}</div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.ticket-qr-panel {
+  overflow: hidden;
+}
+
+.ticket-qr-frame {
+  display: grid;
+  place-items: center;
+  width: min(100%, 196px);
+  aspect-ratio: 1;
+  padding: 10px;
+  border-radius: var(--tf-radius-md);
+  background: #ffffff;
+}
+
+.ticket-qr-image,
+.ticket-qr-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ticket-qr-image {
+  object-fit: contain;
+}
+
+.ticket-qr-placeholder {
+  display: grid;
+  place-items: center;
+  color: #07111f;
+  font-weight: 700;
+}
+
+.ticket-qr-payload {
+  overflow-wrap: anywhere;
+}
+</style>

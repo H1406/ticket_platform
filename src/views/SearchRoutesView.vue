@@ -34,6 +34,24 @@ const filters = reactive({
   time: ''
 })
 
+const todayInputValue = computed(() => formatDateInputValue())
+
+function resolveRouteDepartureDateTime(route) {
+  const [year, month, day] = String(form.departureDate || todayInputValue.value).split('-').map(Number)
+  const [hours = 0, minutes = 0, seconds = 0] = String(route.departureTime || '00:00:00').split(':').map(Number)
+
+  if (![year, month, day].every(Number.isFinite)) {
+    return null
+  }
+
+  return new Date(year, month - 1, day, hours, minutes, seconds || 0, 0)
+}
+
+function hasRouteDeparted(route) {
+  const departureDateTime = resolveRouteDepartureDateTime(route)
+  return Boolean(departureDateTime) && departureDateTime.getTime() <= Date.now()
+}
+
 const filteredRoutes = computed(() =>
   bookingStore.routes.filter((route) => {
     const normalizedDeparture = form.departure.trim().toLowerCase()
@@ -69,7 +87,11 @@ async function selectRoute(route) {
     form.departureDate = formatDateInputValue()
   }
 
-  await bookingStore.selectRoute(route.id)
+  if (hasRouteDeparted(route)) {
+    return
+  }
+
+  await bookingStore.selectRoute(route.id, form.departureDate)
   bookingStore.resetSeatHold()
   router.push({
     name: 'seat-selection',
@@ -106,7 +128,13 @@ async function selectRoute(route) {
                 </div>
                 <div class="col-md-6 col-lg-3">
                   <label class="form-label">Departure date</label>
-                  <input v-model="form.departureDate" type="date" class="form-control" required />
+                  <input
+                    v-model="form.departureDate"
+                    type="date"
+                    class="form-control"
+                    :min="todayInputValue"
+                    required
+                  />
                 </div>
                 <div class="col-md-6 col-lg-3">
                   <label class="form-label">Passengers</label>
@@ -128,6 +156,7 @@ async function selectRoute(route) {
                 v-for="route in filteredRoutes"
                 :key="route.id"
                 :route="route"
+                :unavailable="hasRouteDeparted(route)"
                 @select="selectRoute"
               />
               <div v-if="!bookingStore.loading && filteredRoutes.length === 0" class="glass-panel p-4">

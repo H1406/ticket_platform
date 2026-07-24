@@ -1,6 +1,7 @@
 <script setup>
 defineProps({
-  route: Object
+  route: Object,
+  unavailable: Boolean
 })
 
 const emit = defineEmits(['select'])
@@ -20,7 +21,16 @@ const emit = defineEmits(['select'])
       </div>
       <div class="text-lg-end">
         <div class="metric-value mb-2">{{ route.capacity }} seats</div>
-        <button class="btn btn-tf-primary" @click="emit('select', route)">Choose Seat</button>
+        <button
+          class="btn btn-tf-primary"
+          :disabled="unavailable"
+          @click="emit('select', route)"
+        >
+          {{ unavailable ? 'Departed Today' : 'Choose Seat' }}
+        </button>
+        <div v-if="unavailable" class="text-muted-soft small mt-2">
+          Select a later date to book this schedule.
+        </div>
       </div>
     </div>
   </div>

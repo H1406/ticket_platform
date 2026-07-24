@@ -1,24 +1,3 @@
--- Allow admins to update ticket boarding status directly (RLS previously only allowed the
--- owning user to update their own ticket, which blocks admin-driven check-in flows).
-create policy "Admins can update tickets"
-  on public.tickets for update
-  using (
-    exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
-    )
-  );
-
--- Atomic, admin-only ticket check-in from a scanned QR payload.
--- Looks the ticket up by qr_payload (falling back to the ticket id itself, since
--- confirm_booking() sets qr_payload = ticket id), validates expiry and duplicate
--- check-in, then inserts a checkins row and flips boarding_status in one transaction.
 create or replace function public.check_in_ticket(
   p_qr_payload text,
   p_gate text default null

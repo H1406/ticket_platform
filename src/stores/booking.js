@@ -31,6 +31,14 @@ function formatDateInputValue(date = new Date()) {
   return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
 }
 
+function normalizeDateValue(dateValue) {
+  if (!dateValue) {
+    return ''
+  }
+
+  return String(dateValue).slice(0, 10)
+}
+
 function formatTravelDateLabel(dateValue) {
   if (!dateValue) {
     return ''
@@ -703,7 +711,7 @@ export const useBookingStore = defineStore('booking', {
           const { passenger, passengerEmail } = getPassengerInfo(row)
           const qrFields = await resolveTicketQr(row)
           const departureTime = row.bookings?.routes?.departure_time || ''
-          const travelDate = row.bookings?.travel_date || row.bookings?.created_at
+          const travelDate = normalizeDateValue(row.bookings?.travel_date) || normalizeDateValue(row.bookings?.created_at)
           const timeline = getTicketTimelineStatus({
             travelDate,
             departureTime,
@@ -725,7 +733,8 @@ export const useBookingStore = defineStore('booking', {
               `${row.bookings?.routes?.departure || 'Route'} service`,
             passenger,
             passengerEmail,
-            departureDate: formatTravelDateLabel(String(travelDate || '').slice(0, 10)),
+            departureDate: formatTravelDateLabel(travelDate),
+            travelDate,
             departureTime,
             arrivalTime: row.bookings?.routes?.arrival_time || '',
             seat: seatCodes.join(', ') || 'Seat unavailable',

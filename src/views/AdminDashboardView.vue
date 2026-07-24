@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
+import { RouterLink } from 'vue-router'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import PassengerTable from '@/components/admin/PassengerTable.vue'
@@ -8,16 +9,27 @@ import { useBookingStore } from '@/stores/booking'
 const bookingStore = useBookingStore()
 
 onMounted(async () => {
-  // Load live stats for admin dashboard
-  await bookingStore.fetchLiveStats()
+  await Promise.all([
+    bookingStore.fetchLiveStats(),
+    bookingStore.fetchAdminTickets()
+  ])
 })
 
-const adminStats = [
-  { label: 'Active boardings', value: '12', change: 'Gate events queued' },
-  { label: 'Live occupancy', value: '81%', change: 'Across tracked routes' },
-  { label: 'Seat conflicts', value: '03', change: 'Prepared for lock resolution' },
-  { label: 'Alerts dispatched', value: '46', change: 'Mock stream' }
-]
+const validTicketCount = computed(
+  () => bookingStore.adminTickets.filter((ticket) => ticket.canCheckIn).length
+)
+const checkedInCount = computed(
+  () => bookingStore.adminTickets.filter((ticket) => ticket.isCheckedIn).length
+)
+const expiredTicketCount = computed(
+  () => bookingStore.adminTickets.filter((ticket) => ticket.isExpired && !ticket.isCheckedIn).length
+)
+const adminStats = computed(() => [
+  { label: 'Tickets issued', value: String(bookingStore.adminTickets.length), change: 'Across all passengers' },
+  { label: 'Ready for check-in', value: String(validTicketCount.value), change: 'Valid boarding passes' },
+  { label: 'Checked in', value: String(checkedInCount.value), change: 'Camera scans confirmed' },
+  { label: 'Expired', value: String(expiredTicketCount.value), change: 'Blocked at scan' }
+])
 </script>
 
 <template>
@@ -57,12 +69,19 @@ const adminStats = [
           <h3 class="h5 mb-3">Route management</h3>
           <div class="d-flex flex-column gap-3">
             <div class="glass-panel p-3">
-              <div class="fw-semibold">Inventory publishing</div>
-              <div class="small text-muted-soft">TODO: connect to Supabase CRUD and operator workflows.</div>
+              <div class="fw-semibold">Ticket operations</div>
+              <div class="small text-muted-soft">
+                {{ bookingStore.adminTickets.length }} issued tickets are available for review and QR check-in.
+              </div>
+              <RouterLink to="/admin/tickets" class="btn btn-tf-secondary btn-sm mt-3">
+                Open ticket desk
+              </RouterLink>
             </div>
             <div class="glass-panel p-3">
               <div class="fw-semibold">Realtime boarding feed</div>
-              <div class="small text-muted-soft">TODO: merge sockets and check-in events by route and gate.</div>
+              <div class="small text-muted-soft">
+                {{ checkedInCount }} passengers checked in; {{ validTicketCount }} tickets remain ready for boarding.
+              </div>
             </div>
             <div class="glass-panel p-3">
               <div class="fw-semibold">Notification orchestration</div>

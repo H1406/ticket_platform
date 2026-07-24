@@ -145,7 +145,7 @@ export const useAuthStore = defineStore('auth', {
 
         this.profile = normalizeProfile(profile, user)
       } catch (error) {
-        // TODO: Replace this fallback with a dedicated onboarding/profile completion flow.
+        // Keep users signed in even if profile hydration needs a later retry.
         this.profile = buildFallbackProfile(user)
         this.error = error.message || 'Unable to load profile data'
       }

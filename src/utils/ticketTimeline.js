@@ -1,3 +1,32 @@
+function parseLocalCalendarDate(dateValue) {
+  if (!dateValue) {
+    return null
+  }
+
+  if (dateValue instanceof Date) {
+    return new Date(
+      dateValue.getFullYear(),
+      dateValue.getMonth(),
+      dateValue.getDate(),
+      dateValue.getHours(),
+      dateValue.getMinutes(),
+      dateValue.getSeconds(),
+      dateValue.getMilliseconds()
+    )
+  }
+
+  const normalizedDate = String(dateValue).slice(0, 10)
+  const dateParts = normalizedDate.split('-').map(Number)
+
+  if (dateParts.length === 3 && dateParts.every(Number.isFinite)) {
+    const [year, month, day] = dateParts
+    return new Date(year, month - 1, day)
+  }
+
+  const parsed = new Date(dateValue)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 export function resolveDepartureDateTime({ travelDate, departureTime, referenceDate }) {
   const dateValue = travelDate || referenceDate
 
@@ -5,8 +34,8 @@ export function resolveDepartureDateTime({ travelDate, departureTime, referenceD
     return null
   }
 
-  const base = new Date(dateValue)
-  if (Number.isNaN(base.getTime())) {
+  const base = parseLocalCalendarDate(dateValue)
+  if (!base || Number.isNaN(base.getTime())) {
     return null
   }
 

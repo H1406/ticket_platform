@@ -8,7 +8,7 @@ const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    // TODO: Centralize retry policies and auth token refresh when backend APIs go live.
+    // Backend retry and token refresh policies belong here when those APIs go live.
     return Promise.reject(error)
   }
 )

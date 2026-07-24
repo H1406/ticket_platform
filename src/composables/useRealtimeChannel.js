@@ -6,7 +6,7 @@ export function useRealtimeChannel(subscriptions = {}) {
   const removers = []
 
   onMounted(() => {
-    // TODO: Connect conditionally after auth handshake and namespace selection.
+    // Subscriptions are registered by the caller after the app initializes auth state.
     Object.entries(subscriptions).forEach(([eventName, handler]) => {
       socket.on(eventName, handler)
       removers.push(() => socket.off(eventName, handler))
