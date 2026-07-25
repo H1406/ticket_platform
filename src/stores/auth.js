@@ -93,7 +93,8 @@ export const useAuthStore = defineStore('auth', {
     session: null,
     loading: false,
     initialized: false,
-    error: ''
+    error: '',
+    notice: ''
   }),
   getters: {
     isAuthenticated: (state) => Boolean(state.session),
@@ -161,6 +162,7 @@ export const useAuthStore = defineStore('auth', {
 
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const { data, error } = await supabase.auth.getSession()
@@ -188,6 +190,7 @@ export const useAuthStore = defineStore('auth', {
     async handleOAuthCallback(code) {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code)
@@ -208,6 +211,7 @@ export const useAuthStore = defineStore('auth', {
     async handleOAuthTokenCallback({ accessToken, refreshToken }) {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const { data, error } = await supabase.auth.setSession({
@@ -231,6 +235,7 @@ export const useAuthStore = defineStore('auth', {
     async signInWithGoogle(targetPath = '/dashboard') {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const nextPath = sanitizeRedirectPath(targetPath)
@@ -257,6 +262,7 @@ export const useAuthStore = defineStore('auth', {
     async signInWithPassword(payload) {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const { data, error } = await supabase.auth.signInWithPassword(payload)
@@ -266,18 +272,33 @@ export const useAuthStore = defineStore('auth', {
         }
 
         await this.applySession(data.session)
+        if (!data.session) {
+          this.notice = 'No session was returned. Please verify your email before signing in.'
+        }
       } catch (error) {
         this.error = error.message || 'Email sign-in failed'
       } finally {
         this.loading = false
       }
     },
-    async signUp(payload) {
+    async signUp(payload, targetPath = '/dashboard') {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
-        const { data, error } = await supabase.auth.signUp(payload)
+        const nextPath = sanitizeRedirectPath(targetPath)
+        const redirectTo = new URL('/callback', getAppOrigin())
+
+        redirectTo.searchParams.set('next', nextPath)
+
+        const { data, error } = await supabase.auth.signUp({
+          ...payload,
+          options: {
+            ...(payload.options || {}),
+            emailRedirectTo: redirectTo.toString()
+          }
+        })
 
         if (error) {
           throw error
@@ -285,6 +306,8 @@ export const useAuthStore = defineStore('auth', {
 
         if (data.session) {
           await this.applySession(data.session)
+        } else {
+          this.notice = 'Check your email to confirm your account, then sign in.'
         }
       } catch (error) {
         this.error = error.message || 'Registration failed'
@@ -295,6 +318,7 @@ export const useAuthStore = defineStore('auth', {
     async signOut() {
       this.loading = true
       this.error = ''
+      this.notice = ''
 
       try {
         const { error } = await supabase.auth.signOut()

@@ -32,6 +32,9 @@ async function submit() {
     return
   }
 
+  const targetPath =
+    typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+
   if (mode.value === 'login') {
     await authStore.signInWithPassword({
       email: form.email,
@@ -41,11 +44,11 @@ async function submit() {
     await authStore.signUp({
       email: form.email,
       password: form.password
-    })
+    }, targetPath)
   }
 
-  if (!authStore.error && mode.value === 'login') {
-    router.push(route.query.redirect || '/dashboard')
+  if (!authStore.error && authStore.isAuthenticated) {
+    router.push(targetPath)
   }
 }
 
@@ -105,6 +108,7 @@ function continueWithGoogle() {
 
                 <div v-if="validationError" class="text-warning small">{{ validationError }}</div>
                 <div v-if="authStore.error" class="text-danger small">{{ authStore.error }}</div>
+                <div v-if="authStore.notice" class="text-info small">{{ authStore.notice }}</div>
 
                 <button class="btn btn-tf-primary w-100" :disabled="authStore.loading">
                   {{ authStore.loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account' }}
