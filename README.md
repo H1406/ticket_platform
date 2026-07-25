@@ -35,10 +35,13 @@ Create `.env` from `.env.example` and configure:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_APP_ORIGIN`
 - `VITE_API_URL`
 - `VITE_SOCKET_URL`
 - `SERVER_PORT`
 - `CLIENT_ORIGIN`
+
+For deployed Google OAuth, set `VITE_APP_ORIGIN` to your public frontend origin, for example `https://your-app.vercel.app`. In Supabase Dashboard > Authentication > URL Configuration, set Site URL to the same origin and add `https://your-app.vercel.app/callback` to Redirect URLs.
 
 ## Backend route layout
 

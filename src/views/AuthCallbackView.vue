@@ -16,16 +16,38 @@ const nextPath = computed(() => {
     : '/dashboard'
 })
 
+function getHashSessionParams() {
+  const hash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash
+  const params = new URLSearchParams(hash)
+
+  return {
+    accessToken: params.get('access_token') || '',
+    refreshToken: params.get('refresh_token') || '',
+    error: params.get('error_description') || params.get('error') || ''
+  }
+}
+
+function clearUrlHash() {
+  if (window.location.hash) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  }
+}
+
 onMounted(async () => {
   const code = typeof route.query.code === 'string' ? route.query.code : ''
+  const hashSession = getHashSessionParams()
   const providerError =
-    typeof route.query.error_description === 'string'
+    hashSession.error ||
+    (typeof route.query.error_description === 'string'
       ? route.query.error_description
       : typeof route.query.error === 'string'
         ? route.query.error
-        : ''
+        : '')
 
   if (providerError) {
+    clearUrlHash()
     callbackError.value = providerError
     processing.value = false
     return
@@ -34,6 +56,9 @@ onMounted(async () => {
   try {
     if (code) {
       await authStore.handleOAuthCallback(code)
+    } else if (hashSession.accessToken && hashSession.refreshToken) {
+      await authStore.handleOAuthTokenCallback(hashSession)
+      clearUrlHash()
     } else if (!authStore.initialized) {
       await authStore.initialize()
     }

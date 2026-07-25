@@ -56,10 +56,13 @@ Make sure your `.env` file has the correct values:
 ```bash
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_APP_ORIGIN=http://localhost:5173
 VITE_SOCKET_URL=http://localhost:3001
 ```
 
 Find these in **Supabase Dashboard > Project Settings > API**
+
+For deployment, set `VITE_APP_ORIGIN` to your public frontend URL. Then open **Supabase Dashboard > Authentication > URL Configuration**, set **Site URL** to that same frontend URL, and add `<your-frontend-url>/callback` to **Redirect URLs**. Leaving these as `http://localhost:3000` can cause `bad_oauth_state` after Google redirects back.
 
 ---
 

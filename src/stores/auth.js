@@ -11,6 +11,10 @@ function sanitizeRedirectPath(path) {
   return path
 }
 
+function getAppOrigin() {
+  return import.meta.env.VITE_APP_ORIGIN || window.location.origin
+}
+
 function buildFallbackProfile(user) {
   const metadata = user?.user_metadata ?? {}
   const firstName = metadata.given_name || metadata.first_name || ''
@@ -201,13 +205,36 @@ export const useAuthStore = defineStore('auth', {
         this.loading = false
       }
     },
+    async handleOAuthTokenCallback({ accessToken, refreshToken }) {
+      this.loading = true
+      this.error = ''
+
+      try {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        })
+
+        if (error) {
+          throw error
+        }
+
+        await this.applySession(data.session)
+      } catch (error) {
+        this.error = error.message || 'OAuth callback failed'
+        throw error
+      } finally {
+        this.initialized = true
+        this.loading = false
+      }
+    },
     async signInWithGoogle(targetPath = '/dashboard') {
       this.loading = true
       this.error = ''
 
       try {
         const nextPath = sanitizeRedirectPath(targetPath)
-        const redirectTo = new URL('/callback', window.location.origin)
+        const redirectTo = new URL('/callback', getAppOrigin())
 
         redirectTo.searchParams.set('next', nextPath)
 
