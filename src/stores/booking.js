@@ -156,6 +156,9 @@ export const useBookingStore = defineStore('booking', {
     ticket: null,
     tickets: [],
     adminTickets: [],
+    adminSeatMetrics: {
+      totalSeats: 0
+    },
     scanResult: null,
     passengerTable: [],
     holdExpiresAt: null,
@@ -164,6 +167,8 @@ export const useBookingStore = defineStore('booking', {
     ticketLoading: false,
     ticketsLoading: false,
     adminTicketsLoading: false,
+    adminSeatMetricsLoading: false,
+    passengerFeedLoading: false,
     checkInLoading: false,
     confirmingBooking: false,
     error: '',
@@ -171,7 +176,10 @@ export const useBookingStore = defineStore('booking', {
     ticketError: '',
     ticketsError: '',
     adminTicketsError: '',
-    seatChannel: null
+    adminSeatMetricsError: '',
+    passengerFeedError: '',
+    seatChannel: null,
+    adminCheckInChannel: null
   }),
   getters: {
     upcomingTrips: (state) =>
@@ -385,38 +393,145 @@ export const useBookingStore = defineStore('booking', {
       }
     },
 
-    async fetchPassengerTable(routeId) {
-      this.loading = true
-      this.error = ''
+    async fetchAdminSeatMetrics() {
+      this.adminSeatMetricsLoading = true
+      this.adminSeatMetricsError = ''
 
       try {
-        const { data, error } = await supabase
-          .from('bookings')
-          .select(`
-            id,
-            seat_ids,
-            routes(departure, destination),
-            profiles(first_name, last_name)
-          `)
-          .eq('route_id', routeId)
-          .eq('status', 'confirmed')
+        const { count, error } = await supabase
+          .from('seats')
+          .select('id', { count: 'exact', head: true })
 
         if (error) {
           throw error
         }
 
-        this.passengerTable = (data || []).map((booking, index) => ({
-          id: `P-${1001 + index}`,
-          name: `${booking.profiles?.first_name || ''} ${booking.profiles?.last_name || ''}`.trim() || 'Passenger',
-          route: `${booking.routes?.departure?.substring(0, 3) || ''}-${booking.routes?.destination?.substring(0, 3) || ''}`.toUpperCase(),
-          seat: `${booking.seat_ids?.length || 0} seat(s)`,
-          status: 'Confirmed'
-        }))
+        this.adminSeatMetrics = {
+          totalSeats: count || 0
+        }
       } catch (err) {
-        this.error = err.message || 'Failed to fetch passenger table'
+        this.adminSeatMetricsError = err.message || 'Failed to fetch seat metrics'
+        this.adminSeatMetrics = { totalSeats: 0 }
+      } finally {
+        this.adminSeatMetricsLoading = false
+      }
+    },
+
+    async fetchPassengerCheckInFeed() {
+      this.passengerFeedLoading = true
+      this.passengerFeedError = ''
+
+      try {
+        const { data, error } = await supabase
+          .from('checkins')
+          .select(`
+            id,
+            ticket_id,
+            checked_in_at,
+            gate,
+            tickets(
+              id,
+              boarding_status,
+              bookings(
+                id,
+                travel_date,
+                seat_ids,
+                routes(departure, destination, departure_time),
+                profiles(first_name, last_name, email)
+              )
+            )
+          `)
+          .order('checked_in_at', { ascending: false })
+          .limit(25)
+
+        if (error) {
+          throw error
+        }
+
+        const seatIds = Array.from(
+          new Set((data || []).flatMap((row) => row.tickets?.bookings?.seat_ids || []))
+        )
+        let seatMap = new Map()
+
+        if (seatIds.length) {
+          const { data: seatData, error: seatError } = await supabase
+            .from('seats')
+            .select('id, seat_code')
+            .in('id', seatIds)
+
+          if (seatError) {
+            throw seatError
+          }
+
+          seatMap = new Map((seatData || []).map((seat) => [seat.id, seat.seat_code]))
+        }
+
+        this.passengerTable = (data || []).map((checkin) => {
+          const booking = checkin.tickets?.bookings
+          const route = booking?.routes
+          const passengerName =
+            `${booking?.profiles?.first_name || ''} ${booking?.profiles?.last_name || ''}`.trim() ||
+            booking?.profiles?.email ||
+            'Passenger'
+          const seatCodes = (booking?.seat_ids || [])
+            .map((seatId) => seatMap.get(seatId))
+            .filter(Boolean)
+            .sort()
+
+          return {
+            id: checkin.id,
+            ticketId: checkin.ticket_id,
+            name: passengerName,
+            route:
+              route?.departure && route?.destination
+                ? `${route.departure} → ${route.destination}`
+                : 'Route unavailable',
+            seat: seatCodes.join(', ') || `${booking?.seat_ids?.length || 0} seat(s)`,
+            status: checkin.tickets?.boarding_status === 'checked_in' ? 'Checked in' : 'Pending',
+            checkedInAt: checkin.checked_in_at,
+            gate: checkin.gate || 'Gate unassigned'
+          }
+        })
+      } catch (err) {
+        this.passengerFeedError = err.message || 'Failed to fetch passenger check-in feed'
         this.passengerTable = []
       } finally {
-        this.loading = false
+        this.passengerFeedLoading = false
+      }
+    },
+
+    async fetchPassengerTable() {
+      await this.fetchPassengerCheckInFeed()
+    },
+
+    subscribeToPassengerCheckIns() {
+      this.unsubscribeFromPassengerCheckIns()
+
+      const channel = supabase
+        .channel('admin-checkins')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'checkins'
+          },
+          () => {
+            void Promise.all([
+              this.fetchPassengerCheckInFeed(),
+              this.fetchAdminTickets()
+            ])
+          }
+        )
+        .subscribe()
+
+      this.adminCheckInChannel = channel
+    },
+
+    unsubscribeFromPassengerCheckIns() {
+      if (this.adminCheckInChannel) {
+        supabase.removeChannel(this.adminCheckInChannel)
+        this.adminCheckInChannel = null
       }
     },
 
@@ -738,6 +853,7 @@ export const useBookingStore = defineStore('booking', {
             departureTime,
             arrivalTime: row.bookings?.routes?.arrival_time || '',
             seat: seatCodes.join(', ') || 'Seat unavailable',
+            seatCount: bookingSeatIds.length,
             class: `${bookingSeatIds.length} seat(s)`,
             gate: 'Assigned at check-in',
             status: row.boarding_status || row.bookings?.status || 'confirmed',
@@ -935,7 +1051,10 @@ export const useBookingStore = defineStore('booking', {
         }
 
         if (row.result_status === 'checked_in') {
-          await this.fetchAdminTickets()
+          await Promise.all([
+            this.fetchAdminTickets(),
+            this.fetchPassengerCheckInFeed()
+          ])
         }
 
         return this.scanResult

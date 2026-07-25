@@ -1,34 +1,91 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminLayout from '@/layouts/AdminLayout.vue'
+import AdminOperationsChart from '@/components/admin/AdminOperationsChart.vue'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import PassengerTable from '@/components/admin/PassengerTable.vue'
 import { useBookingStore } from '@/stores/booking'
 
 const bookingStore = useBookingStore()
+const operationsDate = ref(formatDateInputValue())
+
+function formatDateInputValue(date = new Date()) {
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
+}
 
 onMounted(async () => {
   await Promise.all([
     bookingStore.fetchLiveStats(),
-    bookingStore.fetchAdminTickets()
+    bookingStore.fetchAdminTickets(),
+    bookingStore.fetchAdminSeatMetrics(),
+    bookingStore.fetchPassengerCheckInFeed()
   ])
+  bookingStore.subscribeToPassengerCheckIns()
 })
 
+onBeforeUnmount(() => {
+  bookingStore.unsubscribeFromPassengerCheckIns()
+})
+
+const ticketsForOperationsDate = computed(() =>
+  bookingStore.adminTickets.filter((ticket) => ticket.travelDate === operationsDate.value)
+)
 const validTicketCount = computed(
-  () => bookingStore.adminTickets.filter((ticket) => ticket.canCheckIn).length
+  () => ticketsForOperationsDate.value.filter((ticket) => ticket.canCheckIn).length
 )
 const checkedInCount = computed(
-  () => bookingStore.adminTickets.filter((ticket) => ticket.isCheckedIn).length
+  () => ticketsForOperationsDate.value.filter((ticket) => ticket.isCheckedIn).length
 )
 const expiredTicketCount = computed(
-  () => bookingStore.adminTickets.filter((ticket) => ticket.isExpired && !ticket.isCheckedIn).length
+  () => ticketsForOperationsDate.value.filter((ticket) => ticket.isExpired && !ticket.isCheckedIn).length
+)
+const soldSeatCount = computed(() =>
+  ticketsForOperationsDate.value.reduce((total, ticket) => total + (ticket.seatCount || 0), 0)
+)
+const totalSeatCount = computed(() => bookingStore.adminSeatMetrics.totalSeats || 0)
+const seatFillPercent = computed(() => {
+  if (!totalSeatCount.value) {
+    return 0
+  }
+
+  return Math.min(100, Math.round((soldSeatCount.value / totalSeatCount.value) * 100))
+})
+const maxTicketBarValue = computed(() =>
+  Math.max(1, ticketsForOperationsDate.value.length, checkedInCount.value)
 )
 const adminStats = computed(() => [
-  { label: 'Tickets issued', value: String(bookingStore.adminTickets.length), change: 'Across all passengers' },
+  { label: 'Tickets sold', value: String(ticketsForOperationsDate.value.length), change: 'For selected date' },
   { label: 'Ready for check-in', value: String(validTicketCount.value), change: 'Valid boarding passes' },
   { label: 'Checked in', value: String(checkedInCount.value), change: 'Camera scans confirmed' },
   { label: 'Expired', value: String(expiredTicketCount.value), change: 'Blocked at scan' }
+])
+const chartMetrics = computed(() => [
+  {
+    key: 'seat-fillness',
+    label: 'Seat fillness',
+    detail: `${soldSeatCount.value} of ${totalSeatCount.value} seats sold`,
+    value: `${seatFillPercent.value}%`,
+    percent: seatFillPercent.value,
+    tone: 'info'
+  },
+  {
+    key: 'tickets-sold',
+    label: 'Tickets sold',
+    detail: 'Issued tickets for this date',
+    value: String(ticketsForOperationsDate.value.length),
+    percent: Math.round((ticketsForOperationsDate.value.length / maxTicketBarValue.value) * 100),
+    tone: 'warning'
+  },
+  {
+    key: 'checked-in',
+    label: 'Checked in',
+    detail: 'Passengers scanned at the gate',
+    value: String(checkedInCount.value),
+    percent: Math.round((checkedInCount.value / maxTicketBarValue.value) * 100),
+    tone: 'success'
+  }
 ])
 </script>
 
@@ -52,16 +109,20 @@ const adminStats = computed(() => [
       <div class="dashboard-col dashboard-col-main">
         <div class="glass-panel p-4">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h3 class="h5 mb-0">Occupancy chart placeholder</h3>
-            <span class="text-muted-soft small">Chart library can be added later</span>
+            <h3 class="h5 mb-0">Seat and boarding chart</h3>
+            <input
+              v-model="operationsDate"
+              type="date"
+              class="form-control admin-date-control"
+            />
           </div>
-          <div class="d-flex align-items-end gap-3 dashboard-chart">
-            <div class="bg-info rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 60%"></div>
-            <div class="bg-success rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 85%"></div>
-            <div class="bg-warning rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 72%"></div>
-            <div class="bg-primary rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 93%"></div>
-            <div class="bg-danger rounded-top-4 w-100 dashboard-chart-bar" style="--bar-height: 48%"></div>
+          <div v-if="bookingStore.adminTicketsLoading || bookingStore.adminSeatMetricsLoading" class="text-muted-soft small py-4">
+            Loading operations metrics...
           </div>
+          <div v-else-if="bookingStore.adminTicketsError || bookingStore.adminSeatMetricsError" class="text-danger small py-4">
+            {{ bookingStore.adminTicketsError || bookingStore.adminSeatMetricsError }}
+          </div>
+          <AdminOperationsChart v-else :metrics="chartMetrics" />
         </div>
       </div>
       <div class="dashboard-col dashboard-col-aside">
@@ -71,7 +132,7 @@ const adminStats = computed(() => [
             <div class="glass-panel p-3">
               <div class="fw-semibold">Ticket operations</div>
               <div class="small text-muted-soft">
-                {{ bookingStore.adminTickets.length }} issued tickets are available for review and QR check-in.
+                {{ ticketsForOperationsDate.length }} tickets are sold for the selected operations date.
               </div>
               <RouterLink to="/admin/tickets" class="btn btn-tf-secondary btn-sm mt-3">
                 Open ticket desk
@@ -92,6 +153,23 @@ const adminStats = computed(() => [
       </div>
     </div>
 
-    <PassengerTable :passengers="bookingStore.passengerTable" />
+    <PassengerTable
+      :passengers="bookingStore.passengerTable"
+      :loading="bookingStore.passengerFeedLoading"
+      :error="bookingStore.passengerFeedError"
+    />
   </AdminLayout>
 </template>
+
+<style scoped>
+.admin-date-control {
+  width: 180px;
+  min-height: 42px;
+}
+
+@media (max-width: 767px) {
+  .admin-date-control {
+    width: 100%;
+  }
+}
+</style>

@@ -1,4 +1,5 @@
 <script setup>
+import AgentChatWindow from '@/components/common/AgentChatWindow.vue'
 import AppNavbar from '@/components/common/AppNavbar.vue'
 import AppFooter from '@/components/common/AppFooter.vue'
 </script>
@@ -10,5 +11,6 @@ import AppFooter from '@/components/common/AppFooter.vue'
       <slot />
     </main>
     <AppFooter />
+    <AgentChatWindow />
   </div>
 </template>

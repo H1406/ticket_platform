@@ -28,4 +28,10 @@ export const bookingApi = {
   }
 }
 
+export const assistantApi = {
+  sendMessage(payload) {
+    return apiClient.post('/assistant', payload)
+  }
+}
+
 export default apiClient
