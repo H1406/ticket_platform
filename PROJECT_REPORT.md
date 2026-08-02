@@ -2,172 +2,247 @@
 
 ## 1. Project Overview
 
-TransitFlow is a web-based transportation ticketing platform for searching routes, selecting seats, booking tickets, and managing passenger boarding. The application focuses on a realistic end-to-end ticket purchasing flow for rail and air-style transport services. It includes a customer-facing booking experience, authenticated user dashboards, QR-based tickets, and an admin operations console for monitoring ticket sales and check-ins.
+TransitFlow is a transportation ticketing web application that lets passengers search routes, select seats in realtime, reserve tickets, view QR-based boarding passes, and let administrators monitor ticket and boarding operations. The project is designed around a realistic ticket-purchase workflow rather than a static demo: routes, vehicles, seats, bookings, tickets, check-ins, notifications, authentication, and role-based access are all modeled as separate parts of the system.
 
-The project is built as a modern single-page application with a Vue frontend, an Express backend layer, and Supabase as the main authentication, database, and realtime infrastructure. The current implementation already supports live route inventory, Supabase authentication, realtime seat status synchronization, temporary seat holds, ticket generation, QR check-in, and admin monitoring. A conversational automated ticket-ordering agent is also planned and partially prepared through the existing assistant chat interface and backend assistant route.
+The current project uses a Vue 3 frontend, Supabase for authentication/database/realtime features, and a Python assistant API for conversational ticket booking. The app supports both a manual booking flow and an automated ticket-ordering assistant. The manual flow lets users browse routes and select seats visually, while the assistant flow lets users request a trip in natural language and have the system search routes, select seats, place temporary holds, and confirm a booking after user approval.
+
+The most important implemented feature is realtime seat status tracking. Seats can be available, temporarily held, or unavailable because they are part of a confirmed booking for a selected travel date. Supabase Realtime subscriptions keep connected clients synchronized when seat holds change, and Postgres functions protect the booking workflow from double booking.
 
 ## 2. Main Functionality
 
-### 2.1 User Authentication
+### 2.1 Authentication and User Roles
 
-TransitFlow uses Supabase Authentication with Google OAuth support. Users sign in through the authentication view, and the app exchanges OAuth callback codes for Supabase sessions. The authentication store keeps the current session, user object, and profile information synchronized across the app.
+TransitFlow uses Supabase Authentication with Google OAuth support. The frontend exchanges OAuth callback data for a Supabase session, stores the authenticated user in Pinia, and loads the user's profile from the `profiles` table.
 
-After authentication, the app creates or hydrates a profile record from Supabase. Profile data includes the user's email, first name, last name, avatar URL, and role. The role field is important because it separates normal passengers from administrators. The router uses this information to protect authenticated pages and admin-only routes.
+Each profile contains identity and role information, including:
 
-Protected customer routes include:
+- Email
+- First name
+- Last name
+- Avatar URL
+- Role
 
-- Dashboard
+The role field is used to distinguish normal passengers from administrators. Vue Router protects authenticated pages and redirects users based on their session state. Admin routes require both authentication and an admin profile role.
+
+Protected passenger features include:
+
+- User dashboard
 - Route search
 - Seat selection
 - Ticket view
+- Booking assistant chat
 
-Protected admin routes include:
+Protected admin features include:
 
 - Admin dashboard
-- Admin ticket operations
+- Ticket operations page
+- QR check-in scanner
+- Passenger check-in feed
 
-### 2.2 Route Search and Trip Discovery
+### 2.2 Route Search
 
-The route search page lets passengers search transportation routes by departure city, destination, departure date, passenger count, transport type, vehicle type, and time of day. Route inventory is fetched from Supabase through the Pinia booking store.
+Passengers can search route inventory by departure, destination, departure date, passenger count, vehicle type, transport type, and time of day. Route data is loaded from Supabase through the booking store. Each route is joined with its assigned vehicle, so the UI can display route timing, transport mode, vehicle code, vehicle type, capacity, and layout information.
 
-Each route contains transport metadata such as:
+The route search screen also prevents invalid booking attempts. If a selected route has already departed for the chosen date, the UI blocks the passenger from entering the seat-selection flow. This avoids creating seat holds for trips that can no longer be booked.
 
-- Transport type
-- Departure location
-- Destination
-- Departure time
-- Arrival time
-- Vehicle code
-- Vehicle type
-- Vehicle capacity
-- Seat layout metadata
+### 2.3 Manual Seat Selection
 
-The app also prevents users from selecting routes that have already departed for the selected date. This improves booking reliability because passengers cannot proceed into seat selection for an invalid departure time.
-
-### 2.3 Realtime Seat Selection
-
-The seat selection screen is one of the core features of TransitFlow. It displays an SVG-based interactive seat map for the selected vehicle and route. Seats are visually marked according to their current status:
+The manual booking flow includes an interactive SVG seat map. Seats are drawn from the `seats` table and positioned using each seat's `position_meta` coordinates. The seat map displays different visual states for:
 
 - Available seats
-- Temporarily held seats
-- Confirmed booked seats
-- Seats held by the current user
+- Seats held by another passenger
+- Seats held by the current passenger
+- Seats already booked for the selected route and date
 
-Passengers can click seats to hold or release them. A reservation timer shows how long the current hold remains valid. The default hold time is five minutes, with database-level protection that limits holds to a controlled duration.
+When a passenger clicks a seat, the app calls Supabase stored procedures to either hold or release the seat. A reservation timer shows the remaining hold time. The default hold duration is five minutes, and the database function limits the allowed hold duration so a client cannot create unusually long locks.
 
-The UI also displays a live booking summary, including selected seats, passenger information from the authenticated profile, selected travel date, route operator, departure and destination, and the current realtime hold count.
+The seat selection sidebar summarizes:
+
+- Passenger name and email
+- Route operator and vehicle
+- Departure and destination
+- Travel date
+- Selected seats
+- Current realtime hold count
+- Booking errors, if any
 
 ### 2.4 Booking Confirmation
 
-When a passenger confirms the booking, TransitFlow calls a Supabase remote procedure named `confirm_booking`. This procedure validates that:
+After selecting seats, the passenger can confirm the booking. Confirmation is handled by the `confirm_booking` Supabase function. This function validates that:
 
 - The user is authenticated.
-- The booking exists and belongs to the current user.
+- The booking belongs to the current user.
+- The booking is still in a holdable state.
 - The selected seats are still actively held.
-- The holds have not expired.
+- The hold has not expired.
 - No other confirmed booking already owns the same seats for the same route and travel date.
 
-If validation succeeds, the booking is marked as confirmed, the selected seat IDs are persisted on the booking, and a ticket record is created. The ticket's QR payload is set to the ticket ID so it can be scanned later by the admin check-in workflow.
+If the checks pass, the function marks the booking as `confirmed`, persists the selected `seat_ids`, creates a ticket, and sets the ticket QR payload to the ticket ID. The frontend then loads the ticket and refreshes dashboard, booking history, notification, live-stat, and seat-map data.
 
-After confirmation, temporary seat hold fields are cleared from the seats table. This is intentional: confirmed availability is derived from confirmed bookings for a specific travel date, while temporary holds are only used during checkout. This design avoids permanently locking a physical seat record across all travel dates.
+### 2.5 Ticket View and QR Codes
 
-### 2.5 Ticket Display and QR Code Generation
+Confirmed tickets are displayed with passenger, route, timing, seat, and boarding information. The app generates QR code assets on the client from the ticket payload using the `qrcode` package.
 
-The ticket view loads a confirmed ticket from Supabase and enriches it with route, passenger, seat, and timeline information. The app generates QR assets on the client using the ticket payload.
-
-Each ticket includes:
+Ticket data includes:
 
 - Ticket ID
 - Booking ID
 - Passenger name and email
-- Route details
+- Departure and destination
 - Travel date
 - Departure and arrival time
 - Seat codes
 - Boarding status
-- QR code data
+- QR payload and rendered QR image
 - Timeline status such as valid, checked in, or expired
 
-### 2.6 User Dashboard
+### 2.6 Passenger Dashboard
 
-The passenger dashboard summarizes upcoming trips, recent booking history, live stats, notifications, and ticket-related activity. Data is loaded from Supabase through the booking store.
+The dashboard gives users a quick view of their activity. It loads trips, booking history, live platform stats, and notifications from Supabase through the booking store.
 
-The dashboard helps users see:
+The dashboard helps passengers see:
 
-- Upcoming confirmed or held trips
-- Recent booking history
+- Upcoming trips
+- Recent bookings
 - Notifications
-- Live platform metrics
-- Ticket status
+- Current ticket or trip status
+- Live counts such as bookings, confirmed tickets, held seats, and issued tickets
 
-### 2.7 Admin Operations Dashboard
+### 2.7 Admin Dashboard
 
-The admin dashboard provides an operational overview for staff. It includes ticket metrics, seat fillness, checked-in passengers, expired tickets, and a passenger check-in feed.
+The admin dashboard provides an operations overview for staff. Admins can select an operations date and view metrics such as:
 
-Admins can select an operations date and view:
-
-- Number of tickets sold for that date
-- Number of tickets ready for check-in
-- Number of checked-in passengers
-- Number of expired tickets
+- Tickets sold
+- Tickets ready for check-in
+- Checked-in passengers
+- Expired tickets
 - Seat fill percentage
 - Passenger boarding feed
 
-The dashboard subscribes to check-in table changes through Supabase Realtime, so boarding information refreshes when passengers are scanned.
+The admin dashboard subscribes to check-in changes through Supabase Realtime. When a ticket is scanned and a check-in row is created, the admin feed and ticket metrics refresh without requiring a full page reload.
 
-### 2.8 Admin Ticket Operations and QR Check-In
+### 2.8 QR Check-In
 
-The admin ticket operations page lets staff search and filter issued tickets. Tickets can be filtered by status, including valid, checked in, expired, and cancelled.
+The admin ticket operations page includes a camera-based QR scanner using `html5-qrcode`. When an admin scans a ticket, the frontend sends the QR payload to the `check_in_ticket` Supabase function.
 
-The page includes a camera-based QR scanner using the `html5-qrcode` library. When an admin scans a ticket QR code, the app calls the `check_in_ticket` Supabase procedure. This procedure:
+The check-in function:
 
 - Requires admin privileges.
-- Finds the ticket by QR payload or ticket ID.
+- Looks up the ticket by `qr_payload` or ticket ID.
 - Rejects unknown tickets.
-- Detects tickets that were already checked in.
-- Blocks expired tickets when departure time has passed.
-- Inserts a check-in record.
-- Updates the ticket boarding status to `checked_in`.
+- Detects duplicate check-ins.
+- Blocks expired tickets after departure.
+- Inserts a row in `checkins`.
+- Updates the ticket's `boarding_status` to `checked_in`.
 
-This creates an atomic check-in flow, which means ticket validation and status update happen together at the database level.
+This makes check-in atomic and reliable because ticket lookup, validation, check-in creation, and boarding-status update are handled together at the database level.
+
+### 2.9 Automated Ticket-Ordering Assistant
+
+TransitFlow now includes an implemented assistant API for automated ticket ordering. The assistant appears in the frontend as a floating booking chat window. Users can ask for a booking in natural language, such as a route, travel date, and number of passengers.
+
+The assistant API runs from `assistant_api/api.py` through Uvicorn and is exposed through Vite's `/api` proxy at `POST /api/assistant`. The frontend sends:
+
+- The latest user message
+- Conversation history
+- Assistant state from previous turns
+- The signed-in user's Supabase bearer token
+
+The assistant can:
+
+- Extract booking details from natural language.
+- Ask for missing information such as departure city, destination, travel date, or ticket count.
+- Use DeepSeek through an OpenAI-compatible client when `DEEPSEEK_API_KEY` is configured.
+- Fall back to deterministic regex parsing when no real DeepSeek key is provided.
+- Fetch the signed-in Supabase user.
+- Look up routes from Supabase REST.
+- Fetch vehicle seats.
+- Check confirmed bookings for the requested travel date.
+- Choose available seats, preferring adjacent seats when possible.
+- Hold selected seats using the existing `hold_seat` Supabase RPC.
+- Return a confirmation payload to the user.
+- Confirm the booking through `confirm_booking` after the user replies yes.
+- Cancel or abandon a pending assistant booking when the user asks to stop.
+
+This means the automated agent is not separate from the main booking system. It uses the same Supabase functions and seat rules as the manual UI, which keeps both workflows consistent.
 
 ## 3. Technical Components and Tools Used
 
-### 3.1 Frontend
+### 3.1 Frontend Stack
 
-The frontend is built with Vue 3 and Vite. Vue provides the component-based UI structure, while Vite gives the project fast local development and production build tooling.
+The frontend is built with:
 
-Major frontend technologies include:
+- Vue 3 for component-based UI development
+- Vite for local development, build tooling, and API proxying
+- Vue Router for navigation and route guards
+- Pinia for global application state
+- Bootstrap 5 for grid and base interface styling
+- Custom CSS for the TransitFlow visual design
+- Axios for API requests
+- Supabase JavaScript client for auth, database access, RPC calls, and realtime subscriptions
+- `qrcode` for ticket QR generation
+- `html5-qrcode` for camera-based ticket scanning
 
-- Vue 3 for the single-page application
-- Vue Router for route navigation and route guards
-- Pinia for global state management
-- Bootstrap 5 for layout and base UI styling
-- Custom CSS for TransitFlow's visual identity
-- Axios for backend API calls
-- Supabase JavaScript client for authentication, database queries, RPC calls, and realtime channels
-- `qrcode` for client-side ticket QR asset generation
-- `html5-qrcode` for camera-based QR scanning in the admin console
+The frontend is organized into:
 
-The frontend is organized into views, layouts, reusable components, stores, composables, services, and utilities. This separation keeps the app maintainable as the booking flow grows.
+- `views` for full pages
+- `layouts` for main, auth, and admin shells
+- `components` for reusable UI pieces
+- `stores` for auth and booking state
+- `services` for API and Supabase clients
+- `composables` for reusable Vue logic
+- `utils` for ticket QR and ticket timeline helpers
 
-### 3.2 Backend
+### 3.2 Assistant API
 
-The backend is an Express application. It currently provides a structured API shell with route modules for health checks, authentication status, route search, bookings, dashboard data, and assistant messages.
+The current backend entry point is the Python assistant API. It runs with:
 
-Backend technologies include:
+- Python
+- Uvicorn
+- `httpx` for Supabase REST and RPC calls
+- `python-dotenv` for environment loading
+- OpenAI-compatible `openai` client for DeepSeek calls
 
-- Express for API routing
-- CORS for frontend-backend integration
-- Dotenv for environment configuration
-- Node watch mode for backend development
+The API supports:
 
+- `GET /api/health`
+- `POST /api/assistant`
+- CORS preflight through `OPTIONS`
 
-### 3.3 Database and Realtime Layer
+The assistant API reads these key environment variables:
 
-Supabase is the main backend platform for persistent data and realtime synchronization. The project includes a complete schema and incremental migrations.
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_MODEL`
+- `ASSISTANT_HOLD_MINUTES`
+- `DEEPSEEK_TIMEOUT_SECONDS`
 
-Key database tables include:
+If DeepSeek is not configured, the assistant still works through deterministic slot parsing. This makes local development easier because the booking assistant can be tested without a paid or external model key.
+
+### 3.3 Legacy Express Backend
+
+The repository still contains an older Express backend structure with route/controller modules and shared mock data. However, the current `package.json` scripts run the Python assistant API for backend development:
+
+- `npm run dev:assistant`
+- `npm run dev:backend`
+- `npm run start:backend`
+
+The Express files remain useful as historical scaffolding and route-contract references, but the active backend for the current project is the Python assistant API plus Supabase RPC/database logic.
+
+### 3.4 Supabase Database
+
+Supabase is the core backend platform. It provides:
+
+- Authentication
+- Postgres database storage
+- Row Level Security
+- Role-based access rules
+- Realtime subscriptions
+- REST access for the assistant API
+- RPC functions for transactional booking operations
+
+Important tables include:
 
 - `profiles`
 - `routes`
@@ -178,14 +253,6 @@ Key database tables include:
 - `checkins`
 - `notifications`
 
-Supabase is also used for:
-
-- Google OAuth authentication
-- Row Level Security policies
-- Role-based access control
-- Postgres functions for transactional booking logic
-- Realtime subscriptions for seat and check-in updates
-
 Important stored procedures include:
 
 - `release_expired_seat_holds`
@@ -195,230 +262,210 @@ Important stored procedures include:
 - `confirm_booking`
 - `check_in_ticket`
 
-### 3.4 State Management
+### 3.5 State Management
 
-Pinia stores manage application-wide state. The main stores are:
+Pinia manages shared frontend state.
 
-- `auth`: session, user, profile, OAuth flow, role checks
-- `booking`: routes, selected route, seat map, active booking, ticket data, admin tickets, check-in feed, live stats
-- `ui`: shared UI state
+The `auth` store handles:
 
-The booking store is the heart of the app. It coordinates route loading, seat map loading, realtime channel subscriptions, hold and release actions, booking confirmation, ticket fetching, admin metrics, and QR check-in.
+- Session initialization
+- OAuth callback handling
+- Supabase user loading
+- Profile hydration
+- Role detection
+- Sign-in and sign-out behavior
 
-### 3.5 Routing and Access Control
+The `booking` store handles:
 
-Vue Router defines the main application routes and enforces authentication requirements through route metadata. Routes can be marked as:
+- Route fetching
+- Seat-map fetching
+- Realtime seat subscriptions
+- Seat holds and releases
+- Booking confirmation
+- Ticket loading
+- User trip history
+- Live stats
+- Admin ticket lists
+- Passenger check-in feed
+- QR scan results
 
-- Public
-- Guest-only
-- Authenticated-only
-- Admin-only
+The assistant chat also keeps its own conversation state so multi-turn booking requests can continue across messages.
 
-Before each navigation, the router initializes the auth store if needed, redirects unauthenticated users to the login page, redirects signed-in users away from guest-only pages, and blocks non-admin users from admin screens.
+## 4. Realtime Seat Status Tracking
 
-## 4. Detailed Explanation of Realtime Seat Status Tracking
-
-Realtime seat tracking is the most important technical feature in TransitFlow because ticketing platforms must prevent multiple passengers from selecting the same seat at the same time.
+Realtime seat tracking is the project's most important technical feature because ticketing systems must prevent multiple passengers from selecting or confirming the same seat.
 
 ### 4.1 Seat Status Model
 
-Each physical seat record belongs to a vehicle and has a status field. The supported statuses are:
+Each seat belongs to a vehicle and has a status:
 
 - `available`: the seat can be selected.
-- `held`: the seat is temporarily locked during checkout.
-- `booked`: the seat is not available because it is part of a confirmed booking.
+- `held`: the seat is temporarily reserved during checkout.
+- `booked`: the seat is unavailable in the current computed seat map because it is part of a confirmed booking.
 
-The `seats` table also stores temporary hold metadata:
+The `seats` table stores temporary hold metadata:
 
 - `held_by_booking_id`
 - `held_by_user_id`
 - `hold_expires_at`
 
-This metadata lets the app know whether a held seat belongs to the current user, another passenger, or an expired hold that should be released.
+These fields allow the system to identify whether a held seat belongs to the current user, another user, or an expired booking flow.
 
-### 4.2 Loading the Seat Map
+### 4.2 Loading Seat Availability
 
-When the user enters the seat selection page, the app loads the selected route, selected travel date, and vehicle. It then calls `fetchSeatMap`.
+When the seat-selection page opens, the booking store loads the selected route, selected travel date, and active vehicle. It then calls `fetchSeatMap`.
 
-Before reading seats, the app calls `release_expired_seat_holds`. This clears stale holds from the database so users do not see seats as unavailable after another passenger abandoned checkout.
+The seat map is built from two sources:
 
-Then the app fetches all seats for the selected vehicle. It also separately fetches confirmed bookings for the same route and selected travel date. This second query is important because a physical vehicle seat can be reused on different dates. A seat should only be considered booked if it appears in a confirmed booking for the same route and same travel date.
+- The `seats` table provides the physical seat layout and temporary hold status.
+- The `bookings` table provides confirmed reservations for the selected route and travel date.
 
-The frontend combines these two sources:
+Before reading seat data, the app calls `release_expired_seat_holds`. This clears stale holds so abandoned booking flows do not keep seats unavailable.
 
-- The `seats` table provides the physical layout and temporary hold state.
-- The `bookings` table provides date-specific confirmed reservations.
+The app then fetches all seats for the selected vehicle and separately fetches confirmed bookings for the same route and date. If a seat appears in a confirmed booking for that date, the frontend marks it as booked in the displayed seat map.
 
-This merged result becomes the visible seat map.
+This design matters because the same physical vehicle layout may be reused on different travel dates. A seat booked today should not automatically be blocked for every future date.
 
-### 4.3 Holding a Seat
+### 4.3 Holding Seats
 
-When a passenger clicks an available seat, the app calls the `hold_seat` Supabase function. This function uses database-level locking with `for update` to prevent race conditions. If two users try to hold the same seat at nearly the same time, the database handles the conflict consistently.
+When a passenger clicks an available seat, the frontend calls the `hold_seat` Supabase function. The function performs the critical checks in the database:
 
-The function checks:
+- Authenticates the user.
+- Releases expired holds first.
+- Confirms that the seat belongs to the selected route.
+- Locks the seat row for update.
+- Checks whether the seat is confirmed for the selected travel date.
+- Rejects seats actively held by another passenger.
+- Creates or updates a held booking.
+- Stores the hold owner and expiration timestamp on the seat.
 
-- The user is authenticated.
-- The seat belongs to the selected route.
-- The seat is not already booked for the selected travel date.
-- The seat is not actively held by another passenger.
-- Existing expired holds are released first.
+Using database functions and row locks is safer than relying on frontend state because two clients can click the same seat at nearly the same time. The database becomes the source of truth.
 
-If the seat can be held, the function either creates a new booking in `held` status or attaches the seat to the user's existing active held booking. It then updates the seat with the booking ID, user ID, and hold expiration timestamp.
+### 4.4 Releasing Seats
 
-### 4.4 Releasing a Seat
+Seats can be released in several ways:
 
-If the passenger clicks a seat they already hold, the app calls `release_seat_hold`. This clears the temporary hold fields from the seat and updates the related booking. If no seats remain in the booking, the booking returns to a draft state.
+- A passenger clicks a seat they already hold.
+- The passenger cancels an active booking flow.
+- The user leaves the seat-selection page.
+- A hold expires.
+- The assistant receives a cancel request.
 
-The app also releases holds when the user leaves the seat selection flow without confirming. The seat selection view listens for route changes and page hide events. If the user navigates away from the booking flow, the app calls `release_booking_holds` so seats become available for other passengers.
+The relevant functions are `release_seat_hold`, `release_booking_holds`, and `release_expired_seat_holds`. These functions clear temporary hold fields and update the booking state. If a held booking has no remaining held seats, it can return to draft, cancelled, or expired status depending on the flow.
 
 ### 4.5 Reservation Timer
 
-The frontend tracks the hold expiration timestamp returned by Supabase. A reservation countdown component displays the remaining time. If the timer expires, the app refreshes the seat map. Since `fetchSeatMap` calls `release_expired_seat_holds`, expired seats are cleaned up and shown as available again.
+The frontend stores the hold expiration timestamp returned by Supabase. The `ReservationTimer` component shows the remaining time. If the hold expires, the frontend reloads the seat map. Because `fetchSeatMap` calls `release_expired_seat_holds`, expired seats are cleaned up during refresh and become selectable again.
 
-The database function also clamps hold duration to a controlled range, which helps prevent excessively long seat locks.
+### 4.6 Supabase Realtime Channels
 
-### 4.6 Supabase Realtime Synchronization
-
-After loading a vehicle's seats, the booking store subscribes to a Supabase Realtime channel named for the active vehicle:
+After a vehicle's seats are loaded, the booking store subscribes to a Supabase Realtime channel named:
 
 ```text
 seat-map:{vehicleId}
 ```
 
-The subscription listens for Postgres changes on the `seats` table, filtered by the current `vehicle_id`. Whenever a seat is inserted, updated, or deleted for that vehicle, the frontend refreshes the seat map.
+The subscription listens for Postgres changes on the `seats` table filtered by `vehicle_id`. Whenever a seat row changes, the frontend refreshes the seat map.
 
-This means multiple connected users can see seat availability changes without manually refreshing the page. For example:
+Example realtime flow:
 
 1. User A selects seat A1.
-2. Supabase updates A1 to `held`.
-3. Supabase Realtime broadcasts the change.
+2. The `hold_seat` RPC marks A1 as held.
+3. Supabase emits a realtime change for that seat row.
 4. User B's browser receives the event.
-5. User B's app reloads the seat map.
-6. Seat A1 appears as held and cannot be selected by User B.
+5. User B's booking store reloads the seat map.
+6. A1 appears as held and is no longer available to User B.
 
-This realtime flow reduces double-booking risk and gives users confidence that the seat map reflects the current state of the system.
+This keeps the seat canvas current across multiple active clients.
 
 ### 4.7 Confirmed Bookings and Date-Specific Availability
 
-When a booking is confirmed, the selected seat IDs are stored on the confirmed booking record. The temporary hold fields on the seat records are then cleared.
+When a booking is confirmed, selected seat IDs are saved on the confirmed booking. The temporary hold fields on the physical seat rows are cleared.
 
-This may look unusual at first, but it is a deliberate design choice. The `seats` table represents the physical seats on a vehicle, while `bookings` represents reservations for a route and travel date. If confirmed bookings permanently changed seat rows to `booked`, the same seat could become unavailable on every future travel date. By keeping confirmed booking ownership in the `bookings` table, the app can correctly show a seat as booked only for the relevant travel date.
+This is intentional. Physical seats are reusable across dates, so the `seats` table should not become permanently locked after a single confirmed trip. Instead, confirmed bookings store which seats are sold for a specific route and travel date. The seat map then computes booked status from confirmed bookings for the currently selected date.
 
-This approach supports future expansion to recurring routes, daily schedules, and multiple departures using the same vehicle layout.
+This approach supports:
 
-### 4.8 Failure Handling
+- Recurring routes
+- Multi-date schedules
+- Reuse of the same vehicle layout
+- Accurate future availability
 
-The seat system includes several safeguards:
+### 4.8 Assistant Seat Tracking
 
-- Expired holds are released before seat reads and booking operations.
-- Database functions validate ownership before releasing or confirming holds.
-- Confirm booking checks for conflicts against other confirmed bookings.
-- Realtime updates keep connected clients synchronized.
-- The frontend displays seat map errors when a hold or release fails.
-- Navigation cleanup prevents abandoned holds from lasting until timeout.
+The automated assistant uses the same seat model as the manual UI. Before selecting seats, it calls `release_expired_seat_holds`, fetches seats for the selected vehicle, checks confirmed bookings for the requested date, and chooses available seats.
 
-Together, these safeguards make the seat tracking flow reliable even when multiple passengers interact with the same route at the same time.
+For multiple passengers, the assistant attempts to select adjacent seats first. If adjacent seats are unavailable, it chooses the next available seats and explains that choice in the reply. It then calls `hold_seat` for each selected seat and returns a pending booking payload for confirmation.
 
-## 5. Automated Agent for Ticket Ordering
+Because the assistant uses the same Supabase RPCs as the manual flow, automated bookings still respect realtime seat locks, hold expiration, confirmed booking conflicts, and authenticated user ownership.
 
-TransitFlow includes the foundation for an automated ticket-ordering assistant. The current UI already has an assistant chat window that lets passengers ask about destinations, schedules, and booking help. The frontend sends messages and conversation history to a backend assistant route.
+## 5. Innovative Features and Unique Approaches
 
-The assistant endpoint is currently a prepared integration point rather than a fully autonomous booking agent. It accepts chat messages and returns an acknowledgement, which means the frontend and backend plumbing are already in place. The next implementation step is to connect this endpoint to an automated agent capable of understanding passenger intent and guiding the user through the booking process.
+### 5.1 Supabase-Backed Realtime Seat Holds
 
-The planned automated ticket-ordering agent will be able to:
+Seat selection is not only a visual frontend state. Seats are held through Supabase RPC functions and synchronized through Supabase Realtime. This gives the app production-like behavior where concurrent users see each other's seat interactions.
 
-- Understand natural-language trip requests such as "Book me a morning train from Hanoi to Da Nang tomorrow."
-- Search available routes based on departure, destination, time, date, and passenger count.
-- Compare route options using departure time, arrival time, vehicle type, and availability.
-- Recommend the best trip based on user preferences.
-- Help select available seats from realtime seat inventory.
-- Start or continue a temporary seat hold.
-- Guide the passenger through confirmation.
-- Explain booking errors such as expired holds, sold-out routes, or unavailable seats.
+### 5.2 Date-Specific Seat Availability
 
-This feature is especially valuable because ticket booking can involve several steps and constraints. Instead of forcing passengers to manually adjust filters and inspect every route, the agent can act as a conversational layer over the existing booking system.
+The app separates physical seats from date-specific confirmed reservations. This avoids the common mistake of marking a physical seat as permanently booked after one trip. It makes the system more scalable for daily schedules and recurring services.
 
-The agent will rely on the existing architecture rather than replacing it. It should call the same route, seat, hold, and confirmation workflows that the visual UI already uses. This keeps the automated flow consistent with the manual booking flow and avoids creating two separate sources of truth.
+### 5.3 Automated Ticket-Ordering Agent
 
-## 6. Innovative Features and Unique Approaches
+The assistant is a unique feature because it turns ticket ordering into a conversational workflow. It can parse a user's request, ask for missing details, choose seats, hold them, and confirm the booking after approval. The fallback regex parser also makes the assistant usable during local development without requiring an external model key.
 
-### 6.1 Realtime Seat Holds with Database-Level Safety
+### 5.4 Adjacent Seat Selection Logic
 
-The project does not rely only on frontend state to mark seats as selected. Seat holds are written to Supabase through transactional Postgres functions. This is a stronger design because the database becomes the authority for seat availability.
+The assistant does more than pick random available seats. It sorts seats by code or layout coordinates and tries to find adjacent blocks for group bookings. If that is not possible, it still offers the next available seats and explains that adjacent seats were unavailable.
 
-The use of `for update`, ownership checks, expiration timestamps, and conflict detection makes the seat selection process much closer to a real ticketing system.
+### 5.5 QR-Based Boarding Workflow
 
-### 6.2 Date-Specific Booking Logic
+TransitFlow includes a complete digital-to-physical ticket lifecycle: confirmed booking, generated QR ticket, camera scan, validation, check-in record, and live admin update.
 
-The app separates physical seat records from date-specific confirmed bookings. This is a unique and important design decision. It allows the same vehicle and same seat layout to be reused across multiple travel dates without corrupting availability for future departures.
+### 5.6 Realtime Admin Operations
 
-### 6.3 Realtime Admin Boarding Feed
+The admin console is not only a static table. It shows ticket and boarding metrics by date and refreshes the passenger feed when check-ins happen.
 
-Admin users can monitor passenger check-ins as they happen. The admin dashboard subscribes to check-in changes and refreshes the passenger feed and ticket data when scans occur.
+## 6. Challenges and How They Were Addressed
 
-This gives the admin side a live operations feel rather than a static reporting dashboard.
+### 6.1 Preventing Double Booking
 
-### 6.4 QR-Based Ticket Lifecycle
+The biggest challenge was preventing multiple users from reserving the same seat. This was addressed by moving important seat operations into Supabase Postgres functions. The functions validate ownership, lock rows, check confirmed bookings, and reject invalid holds or confirmations.
 
-TransitFlow includes a full ticket lifecycle:
+### 6.2 Handling Abandoned Holds
 
-1. Confirm a booking.
-2. Generate a ticket.
-3. Create a QR payload.
-4. Display the QR code to the passenger.
-5. Scan the QR code from the admin console.
-6. Validate ticket status and expiration.
-7. Mark the passenger as checked in.
+Passengers may close the browser, leave the page, or stop interacting before confirmation. TransitFlow solves this with expiration timestamps, cleanup RPCs, route-leave cleanup, page-hide cleanup, and assistant cancellation handling.
 
-This bridges the digital booking experience with a real-world boarding workflow.
+### 6.3 Supporting Both Manual and Automated Booking
 
-### 6.5 Agent-Ready Architecture
+The manual UI and automated assistant could easily become two separate systems. The project avoids that by making both flows use the same Supabase data model and RPC functions. The assistant acts as another client of the booking system rather than as a separate source of truth.
 
-The assistant chat window and backend assistant route make the app ready for an automated ticket-ordering agent. The project already has clear booking actions and state transitions, which means the future agent can be implemented as an orchestration layer over existing functions instead of as a separate system.
+### 6.4 Keeping Availability Date-Aware
 
-## 7. Challenges Encountered and How They Were Addressed
+A physical seat can be reused on future dates, so confirmed booking logic needed to include `travel_date`. The project handles this by storing confirmed seat IDs on bookings and computing booked seats for the selected route/date combination.
 
-### 7.1 Preventing Double Booking
+### 6.5 Making the Assistant Useful Without a Model Key
 
-One of the biggest challenges in a ticketing system is preventing two passengers from booking the same seat. This was addressed by moving critical seat operations into Supabase stored procedures. The `hold_seat` and `confirm_booking` functions validate seat status directly in the database and use row locking to reduce race conditions.
+The assistant can use DeepSeek when configured, but local development should not fail without that key. The project addresses this with a deterministic regex parser that can extract common route, date, passenger count, confirm, and cancel intents.
 
-### 7.2 Handling Abandoned Seat Holds
+### 6.6 Browser Camera and QR Edge Cases
 
-Users may close the browser, navigate away, or abandon checkout after selecting seats. Without cleanup, this would make seats appear unavailable forever. The project addresses this with expiration timestamps and the `release_expired_seat_holds` function. The frontend also releases active booking holds when the user leaves the seat selection flow.
+The QR scanner has to handle permission denial, unsupported browsers, duplicate scans, unknown tickets, and expired tickets. The UI manages camera state, while the `check_in_ticket` function returns clear statuses such as checked in, already checked in, expired, and not found.
 
-### 7.3 Supporting Reusable Vehicle Layouts Across Dates
+## 7. Current Limitations and Future Improvements
 
-A naive implementation might mark a seat row as permanently booked after confirmation. That would break future departures using the same vehicle layout. TransitFlow solves this by storing confirmed seat ownership on date-specific booking records and using the seats table mainly for physical layout and temporary holds.
+The current project is a strong MVP with realtime booking and an implemented assistant flow, but several improvements are still possible:
 
-### 7.4 Keeping Multiple Clients in Sync
+- Add payment processing before final confirmation.
+- Improve the assistant's language understanding and route ranking.
+- Add better assistant support for changing dates, seats, or route options after a hold is created.
+- Add automated tests for Supabase functions and the assistant API.
+- Replace or remove the legacy Express scaffolding once the Python assistant API is the only backend path.
+- Add admin screens for editing routes, vehicles, and seat layouts.
+- Add richer notification delivery for reminders, hold expiration, and boarding updates.
+- Add observability for assistant decisions, hold failures, confirmation errors, and check-in activity.
 
-Realtime seat selection requires all connected users to see updates quickly. Supabase Realtime channels were used to listen for seat changes filtered by vehicle. When an event arrives, the app refreshes the seat map, ensuring users see the latest status.
+## 8. Conclusion
 
-### 7.5 Role-Based Admin Features
+TransitFlow is a realtime transportation ticketing platform with both manual and conversational booking flows. It combines Vue, Pinia, Supabase Auth, Supabase Realtime, Postgres RPC functions, QR generation, QR scanning, and a Python assistant API into one cohesive project.
 
-The admin console needs access to operational data that regular passengers should not manage. This was addressed with profile roles, route guards, Supabase Row Level Security policies, and admin-only database functions such as `check_in_ticket`.
-
-### 7.6 Integrating QR Scanning with Ticket Validation
-
-QR scanning introduces browser permission issues, duplicate scans, expired tickets, and unknown ticket payloads. The project handles these cases in both the UI and the database function. The scanner component manages camera states such as idle, starting, running, denied, unsupported, and error. The database function returns clear result statuses such as checked in, already checked in, expired, and not found.
-
-## 8. Current Limitations and Future Improvements
-
-The project is already functional as a strong MVP, but several improvements are planned:
-
-- Implement the automated ticket-ordering agent using the prepared assistant route.
-- Connect remaining mock backend endpoints fully to Supabase.
-- Add payment processing before final ticket confirmation.
-- Add richer notification delivery for booking updates and boarding reminders.
-- Expand seat layouts for different transport types and vehicle configurations.
-- Add admin tools for creating and editing routes, vehicles, and seat maps.
-- Add automated tests for Supabase functions and frontend booking flows.
-- Improve observability for booking errors, expired holds, and check-in activity.
-
-## 9. Conclusion
-
-TransitFlow demonstrates a complete transportation ticketing workflow with a strong focus on realtime seat availability and operational reliability. The application combines Vue, Pinia, Express, Supabase Auth, Supabase Realtime, Postgres functions, QR code generation, and camera-based scanning into a cohesive booking platform.
-
-The most technically significant part of the project is the realtime seat tracking system. It handles temporary holds, expiration, ownership, date-specific confirmed bookings, and multi-client synchronization. This makes the app behave much more like a real production ticketing platform than a simple static reservation demo.
-
-The upcoming automated ticket-ordering agent will build on this foundation by turning the existing booking workflow into a guided conversational experience. Because the system already has well-defined route search, seat selection, hold, confirmation, and ticket functions, the agent can become a natural extension of the platform rather than a separate feature.
+The strongest technical feature is the realtime seat tracking system. It handles temporary holds, expiration, date-specific confirmed bookings, multi-client updates, and database-level validation. The automated ticket-ordering assistant builds directly on this same system, allowing passengers to move from natural-language request to held seats and confirmed tickets while preserving the reliability of the manual booking flow.

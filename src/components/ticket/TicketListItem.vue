@@ -31,10 +31,34 @@ defineEmits(['select'])
 <style scoped>
 .ticket-list-item {
   border: 1px solid transparent;
+  color: var(--tf-text);
   cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.ticket-list-item:hover,
+.ticket-list-item:focus-visible {
+  border-color: rgba(77, 210, 255, 0.42);
+  background: rgba(18, 34, 58, 0.88);
+  color: var(--tf-text);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.ticket-list-item .fw-semibold {
+  color: var(--tf-text);
 }
 
 .ticket-list-item-active {
   border-color: var(--tf-primary);
+  background: rgba(77, 210, 255, 0.14);
+  color: var(--tf-text);
+  box-shadow: 0 18px 44px rgba(77, 210, 255, 0.12);
+}
+
+.ticket-list-item-active .badge-soft {
+  color: var(--tf-text);
+  border: 1px solid rgba(77, 210, 255, 0.24);
+  background: rgba(77, 210, 255, 0.12);
 }
 </style>
