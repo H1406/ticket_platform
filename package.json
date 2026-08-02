@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:frontend": "vite",
-    "dev:backend": "node --watch backend/server.js",
+    "dev:assistant": "python3 -m uvicorn assistant_api.api:app --reload --host 127.0.0.1 --port 3001",
+    "dev:backend": "python3 -m uvicorn assistant_api.api:app --reload --host 127.0.0.1 --port 3001",
     "build": "vite build",
     "preview": "vite preview",
-    "start:backend": "node backend/server.js"
+    "start:backend": "python3 -m uvicorn assistant_api.api:app --host 127.0.0.1 --port 3001"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",

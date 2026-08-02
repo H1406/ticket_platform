@@ -8,6 +8,7 @@ const isSending = ref(false)
 const errorMessage = ref('')
 const statusMessage = ref('')
 const messagesEl = ref(null)
+const assistantState = ref({})
 const messages = ref([
   {
     id: crypto.randomUUID(),
@@ -55,10 +56,12 @@ async function sendMessage() {
   try {
     const { data } = await assistantApi.sendMessage({
       message,
-      history: messages.value.map(({ role, text }) => ({ role, content: text }))
+      history: messages.value.map(({ role, text }) => ({ role, content: text })),
+      state: assistantState.value
     })
 
     const reply = data?.reply || data?.message || data?.content
+    assistantState.value = data?.state || assistantState.value || {}
 
     if (reply) {
       messages.value.push({
@@ -70,7 +73,13 @@ async function sendMessage() {
       statusMessage.value = 'Message sent to assistant route.'
     }
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Assistant route is not ready yet.'
+    const message = error.response?.data?.message || error.message || 'Assistant route is not ready yet.'
+    errorMessage.value = message
+    messages.value.push({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      text: message
+    })
   } finally {
     isSending.value = false
     await nextTick(scrollToLatest)

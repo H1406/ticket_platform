@@ -1,8 +1,21 @@
 import axios from 'axios'
+import { supabase } from './supabase'
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 10000
+})
+
+apiClient.interceptors.request.use(async (config) => {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`
+  }
+
+  return config
 })
 
 apiClient.interceptors.response.use(
@@ -30,7 +43,9 @@ export const bookingApi = {
 
 export const assistantApi = {
   sendMessage(payload) {
-    return apiClient.post('/assistant', payload)
+    return apiClient.post('/assistant', payload, {
+      timeout: Number(import.meta.env.VITE_ASSISTANT_TIMEOUT_MS || 60000)
+    })
   }
 }
 
