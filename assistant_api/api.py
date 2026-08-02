@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -109,6 +109,53 @@ def parse_positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if 1 <= parsed <= 9 else None
+
+
+def parse_departure_datetime(travel_date: Any, departure_time: Any) -> datetime | None:
+    date_text = normalize_text(travel_date)
+    time_text = normalize_text(departure_time) or "00:00:00"
+
+    try:
+        parsed_date = datetime.strptime(date_text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+    time_parts = [part for part in time_text.split(":") if part != ""]
+    try:
+        hours = int(time_parts[0]) if len(time_parts) > 0 else 0
+        minutes = int(time_parts[1]) if len(time_parts) > 1 else 0
+        seconds = int(float(time_parts[2])) if len(time_parts) > 2 else 0
+        return datetime(
+            parsed_date.year,
+            parsed_date.month,
+            parsed_date.day,
+            hours,
+            minutes,
+            seconds,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def validate_departure_is_bookable(route: dict[str, Any], travel_date: Any, now: datetime | None = None) -> str:
+    departure_at = parse_departure_datetime(travel_date, route.get("departure_time"))
+    if not departure_at:
+        return "Please provide the travel date in YYYY-MM-DD format."
+
+    current_time = now or datetime.now()
+    if departure_at <= current_time:
+        return (
+            f"{route_summary(route)} on {str(travel_date)[:10]} has already departed. "
+            "Please choose a future travel date or another route."
+        )
+
+    return ""
+
+
+def clear_invalid_travel_date(slots: dict[str, Any]) -> dict[str, Any]:
+    next_slots = dict(slots)
+    next_slots.pop("travel_date", None)
+    return next_slots
 
 
 def _parse_json_response(text: str, fallback: Any = None):
@@ -342,6 +389,12 @@ class SupabaseTool:
     async def release_expired_holds(self) -> None:
         await self._post("/rest/v1/rpc/release_expired_seat_holds", {})
 
+    async def release_booking_holds(self, booking_id: str) -> None:
+        await self._post(
+            "/rest/v1/rpc/release_booking_holds",
+            {"p_booking_id": booking_id, "p_cancel": True},
+        )
+
     async def hold_seat(self, route_id: str, seat_id: str, booking_id: str | None, travel_date: str) -> dict[str, Any]:
         rows = await self._post(
             "/rest/v1/rpc/hold_seat",
@@ -435,6 +488,10 @@ async def build_hold_payload(tool: SupabaseTool, slots: dict[str, Any], user_id:
         return reply, {}, {"slots": slots}
 
     route = routes[0]
+    invalid_departure_message = validate_departure_is_bookable(route, slots["travel_date"])
+    if invalid_departure_message:
+        return invalid_departure_message, {}, {"slots": clear_invalid_travel_date(slots)}
+
     vehicle = (route.get("vehicles") or [None])[0]
     if not vehicle:
         reply = f"I found {route_summary(route)}, but it does not have a vehicle assigned yet."
@@ -511,6 +568,23 @@ async def handle_assistant(payload: dict[str, Any], token: str) -> dict[str, Any
     pending = state.get("pending_payload") or {}
     if pending and extracted.get("confirm"):
         tool = SupabaseTool(token)
+        pending_route = pending.get("route") or {}
+        invalid_departure_message = validate_departure_is_bookable(
+            {
+                "departure": pending_route.get("departure"),
+                "destination": pending_route.get("destination"),
+                "transport_type": pending_route.get("transport_type"),
+                "departure_time": pending_route.get("departure_time"),
+            },
+            pending.get("travel_date"),
+        )
+        if invalid_departure_message:
+            await tool.release_booking_holds(pending["booking_id"])
+            return {
+                "reply": invalid_departure_message,
+                "state": {"slots": clear_invalid_travel_date(state.get("slots") or {})},
+            }
+
         confirmation = await tool.confirm_booking(pending["booking_id"], pending["travel_date"])
         return {
             "reply": f"Booking confirmed. Ticket ID: {confirmation.get('ticket_id')}.",
