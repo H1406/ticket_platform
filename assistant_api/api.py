@@ -546,8 +546,8 @@ async def build_hold_payload(tool: SupabaseTool, slots: dict[str, Any], user_id:
         reason = "I found one available seat"
     reply = (
         f"{reason}: {', '.join(seat_codes)}.\n\n"
-        f"Please confirm this booking payload:\n{json.dumps(payload, indent=2)}\n\n"
-        "Reply yes to create the booking, or cancel to release this hold."
+        "I held this booking for you. Review the details below, then reply yes to create the booking "
+        "or cancel to release this hold."
     )
     state = {"slots": slots, "pending_payload": payload, "hold_results": hold_results}
     return reply, payload, state

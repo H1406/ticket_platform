@@ -13,7 +13,8 @@ const messages = ref([
   {
     id: crypto.randomUUID(),
     role: 'assistant',
-    text: 'Hi, I can help you search routes, compare trips, and book tickets.'
+    text: 'Hi, I can help you search routes, compare trips, and book tickets.',
+    details: null
   }
 ])
 
@@ -32,6 +33,135 @@ function scrollToLatest() {
   }
 }
 
+function extractJsonObject(text) {
+  const source = String(text || '')
+  const markerIndex = source.indexOf('Please confirm this booking payload:')
+  const startIndex = source.indexOf('{', markerIndex >= 0 ? markerIndex : 0)
+
+  if (startIndex < 0) {
+    return null
+  }
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (inString) {
+      continue
+    }
+
+    if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        const rawJson = source.slice(startIndex, index + 1)
+        try {
+          return {
+            parsed: JSON.parse(rawJson),
+            raw: rawJson
+          }
+        } catch {
+          return null
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function cleanAssistantText(text, rawJson) {
+  if (!rawJson) {
+    return text
+  }
+
+  return String(text)
+    .replace('Please confirm this booking payload:', 'Review the booking details below.')
+    .replace(rawJson, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function formatRouteLabel(route) {
+  if (!route) {
+    return ''
+  }
+
+  const endpoints = [route.departure, route.destination].filter(Boolean).join(' -> ')
+  return [endpoints, route.transport_type].filter(Boolean).join(' · ')
+}
+
+function buildAssistantDetails(data, reply) {
+  const extractedJson = extractJsonObject(reply)
+  const pendingPayload = data?.payload || extractedJson?.parsed || null
+  const confirmation = data?.booking || null
+
+  if (confirmation) {
+    return {
+      kind: 'confirmed',
+      title: 'Booking confirmed',
+      summary: confirmation.ticket_id ? `Ticket ${confirmation.ticket_id}` : 'Ticket issued',
+      rows: [
+        { label: 'Booking', value: confirmation.booking_id },
+        { label: 'Ticket', value: confirmation.ticket_id },
+        { label: 'Status', value: confirmation.status || 'Confirmed' }
+      ].filter((row) => row.value)
+    }
+  }
+
+  if (!pendingPayload) {
+    return null
+  }
+
+  const route = pendingPayload.route || {}
+
+  return {
+    kind: data?.needsConfirmation ? 'pending' : 'summary',
+    title: data?.needsConfirmation ? 'Booking hold' : 'Booking details',
+    summary: formatRouteLabel(route),
+    seats: pendingPayload.seat_codes || [],
+    rows: [
+      { label: 'Travel date', value: pendingPayload.travel_date },
+      { label: 'Departure', value: route.departure_time },
+      { label: 'Arrival', value: route.arrival_time },
+      { label: 'Passengers', value: pendingPayload.passenger_count },
+      { label: 'Vehicle', value: route.vehicle_code },
+      { label: 'Booking', value: pendingPayload.booking_id }
+    ].filter((row) => row.value)
+  }
+}
+
+function buildAssistantMessage(data) {
+  const reply = data?.reply || data?.message || data?.content || ''
+  const extractedJson = extractJsonObject(reply)
+
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    text: cleanAssistantText(reply, extractedJson?.raw),
+    details: buildAssistantDetails(data, reply)
+  }
+}
+
 async function sendMessage() {
   const message = draft.value.trim()
 
@@ -42,7 +172,8 @@ async function sendMessage() {
   const userMessage = {
     id: crypto.randomUUID(),
     role: 'user',
-    text: message
+    text: message,
+    details: null
   }
 
   messages.value.push(userMessage)
@@ -60,15 +191,10 @@ async function sendMessage() {
       state: assistantState.value
     })
 
-    const reply = data?.reply || data?.message || data?.content
     assistantState.value = data?.state || assistantState.value || {}
 
-    if (reply) {
-      messages.value.push({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: reply
-      })
+    if (data?.reply || data?.message || data?.content || data?.payload || data?.booking) {
+      messages.value.push(buildAssistantMessage(data))
     } else if (data?.accepted) {
       statusMessage.value = 'Message sent to assistant route.'
     }
@@ -78,7 +204,8 @@ async function sendMessage() {
     messages.value.push({
       id: crypto.randomUUID(),
       role: 'assistant',
-      text: message
+      text: message,
+      details: null
     })
   } finally {
     isSending.value = false
@@ -114,7 +241,38 @@ async function sendMessage() {
             class="agent-chat__message"
             :class="`agent-chat__message--${message.role}`"
           >
-            {{ message.text }}
+            <p v-if="message.text" class="agent-chat__message-text mb-0">{{ message.text }}</p>
+
+            <div v-if="message.details" class="agent-chat__output" :class="`agent-chat__output--${message.details.kind}`">
+              <div class="agent-chat__output-header">
+                <div>
+                  <div class="agent-chat__output-title">{{ message.details.title }}</div>
+                  <div v-if="message.details.summary" class="agent-chat__output-summary">
+                    {{ message.details.summary }}
+                  </div>
+                </div>
+                <span class="agent-chat__output-state">
+                  {{ message.details.kind === 'confirmed' ? 'Done' : 'Held' }}
+                </span>
+              </div>
+
+              <div v-if="message.details.seats?.length" class="agent-chat__seat-row">
+                <span
+                  v-for="seat in message.details.seats"
+                  :key="seat"
+                  class="agent-chat__seat-chip"
+                >
+                  {{ seat }}
+                </span>
+              </div>
+
+              <dl class="agent-chat__detail-grid mb-0">
+                <template v-for="row in message.details.rows" :key="row.label">
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.value }}</dd>
+                </template>
+              </dl>
+            </div>
           </div>
         </div>
 
@@ -236,6 +394,10 @@ async function sendMessage() {
   overflow-wrap: anywhere;
 }
 
+.agent-chat__message-text {
+  white-space: pre-line;
+}
+
 .agent-chat__message--assistant {
   align-self: flex-start;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -247,6 +409,100 @@ async function sendMessage() {
   align-self: flex-end;
   color: #02111a;
   background: linear-gradient(135deg, var(--tf-primary), #7ef9c6);
+}
+
+.agent-chat__output {
+  display: grid;
+  gap: 0.75rem;
+  min-width: min(285px, calc(100vw - 92px));
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(77, 210, 255, 0.18);
+  border-radius: var(--tf-radius-sm);
+  background: rgba(2, 17, 26, 0.34);
+}
+
+.agent-chat__output--confirmed {
+  border-color: rgba(57, 217, 138, 0.28);
+  background: rgba(57, 217, 138, 0.08);
+}
+
+.agent-chat__output-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.agent-chat__output-title {
+  color: var(--tf-text);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.agent-chat__output-summary {
+  margin-top: 0.1rem;
+  color: var(--tf-text-muted);
+  font-size: 0.8rem;
+}
+
+.agent-chat__output-state {
+  flex: 0 0 auto;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  color: #02111a;
+  background: var(--tf-primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.agent-chat__output--confirmed .agent-chat__output-state {
+  background: var(--tf-success);
+}
+
+.agent-chat__seat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.agent-chat__seat-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: var(--tf-text);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.agent-chat__detail-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.38rem 0.8rem;
+}
+
+.agent-chat__detail-grid dt,
+.agent-chat__detail-grid dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.79rem;
+}
+
+.agent-chat__detail-grid dt {
+  color: var(--tf-text-muted);
+  font-weight: 600;
+}
+
+.agent-chat__detail-grid dd {
+  color: var(--tf-text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .agent-chat__status {

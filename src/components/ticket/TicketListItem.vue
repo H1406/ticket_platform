@@ -1,4 +1,6 @@
 <script setup>
+import TicketStatusBadge from '@/components/ticket/TicketStatusBadge.vue'
+
 defineProps({
   ticket: Object,
   selected: Boolean
@@ -16,14 +18,11 @@ defineEmits(['select'])
   >
     <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
       <div class="fw-semibold">{{ ticket.route }}</div>
-      <span class="badge-soft">{{ ticket.timelineLabel }}</span>
+      <TicketStatusBadge :status="ticket.boardingStatus" :expired="ticket.isExpired" />
     </div>
     <div class="text-muted-soft small mb-1">{{ ticket.passenger }} · Seat {{ ticket.seat }}</div>
     <div class="text-muted-soft small d-flex flex-wrap gap-2">
       <span>{{ ticket.departureDate }} {{ ticket.departureTime }}</span>
-      <span>·</span>
-      <span>Status: {{ ticket.status }}</span>
-      <span v-if="ticket.isCheckedIn">· Checked in</span>
     </div>
   </button>
 </template>

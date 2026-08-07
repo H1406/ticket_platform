@@ -1,4 +1,6 @@
 <script setup>
+import TicketStatusBadge from '@/components/ticket/TicketStatusBadge.vue'
+
 defineProps({
   ticket: Object
 })
@@ -14,9 +16,8 @@ defineProps({
             <h2 class="h3 mb-1">{{ ticket.route }}</h2>
             <div class="text-muted-soft">{{ ticket.operator }}</div>
           </div>
-          <div class="d-flex gap-2">
-            <div class="badge-soft">{{ ticket.status }}</div>
-            <div v-if="ticket.isExpired" class="badge-soft">Expired</div>
+          <div class="d-flex flex-wrap gap-2">
+            <TicketStatusBadge :status="ticket.boardingStatus" :expired="ticket.isExpired" />
           </div>
         </div>
 

@@ -1,4 +1,6 @@
 <script setup>
+import TicketStatusBadge from '@/components/ticket/TicketStatusBadge.vue'
+
 defineProps({
   tickets: Array
 })
@@ -33,7 +35,7 @@ defineProps({
             <td>{{ ticket.seat }}</td>
             <td>{{ ticket.departureDate }}</td>
             <td>{{ ticket.departureTime }}</td>
-            <td><span class="badge-soft">{{ ticket.isCheckedIn ? 'Checked in' : 'Not boarded' }}</span></td>
+            <td><TicketStatusBadge :status="ticket.boardingStatus" /></td>
             <td><span class="badge-soft">{{ ticket.isExpired ? 'Expired' : 'Valid' }}</span></td>
             <td>{{ ticket.checkedInAt ? new Date(ticket.checkedInAt).toLocaleString() : '—' }}</td>
           </tr>

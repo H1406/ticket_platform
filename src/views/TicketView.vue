@@ -5,6 +5,7 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import SectionHeading from '@/components/common/SectionHeading.vue'
 import TicketCard from '@/components/ticket/TicketCard.vue'
 import TicketListItem from '@/components/ticket/TicketListItem.vue'
+import TicketStatusBadge from '@/components/ticket/TicketStatusBadge.vue'
 import { useBookingStore } from '@/stores/booking'
 
 const route = useRoute()
@@ -108,7 +109,11 @@ onMounted(async () => {
                   <div class="col-sm-6">
                     <div class="glass-panel p-4 h-100">
                       <h3 class="h5 mb-3">Boarding status</h3>
-                      <div class="badge-soft mb-2">{{ selectedTicket.timelineLabel }}</div>
+                      <TicketStatusBadge
+                        class="mb-2"
+                        :status="selectedTicket.boardingStatus"
+                        :expired="selectedTicket.isExpired"
+                      />
                       <p v-if="selectedTicket.checkedInAt" class="text-muted-soft small mb-0">
                         Checked in at {{ new Date(selectedTicket.checkedInAt).toLocaleString() }}
                       </p>
