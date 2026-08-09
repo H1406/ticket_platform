@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AuthLayout from '@/layouts/AuthLayout.vue'
@@ -7,21 +7,15 @@ import AuthLayout from '@/layouts/AuthLayout.vue'
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const mode = ref('login')
 
 const form = reactive({
   email: '',
-  password: '',
-  confirmPassword: ''
+  password: ''
 })
 
 const validationError = computed(() => {
   if (!form.email || !form.password) {
     return 'Email and password are required.'
-  }
-
-  if (mode.value === 'register' && form.password !== form.confirmPassword) {
-    return 'Passwords do not match.'
   }
 
   return ''
@@ -35,17 +29,10 @@ async function submit() {
   const targetPath =
     typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
 
-  if (mode.value === 'login') {
-    await authStore.signInWithPassword({
-      email: form.email,
-      password: form.password
-    })
-  } else {
-    await authStore.signUp({
-      email: form.email,
-      password: form.password
-    }, targetPath)
-  }
+  await authStore.signInWithPassword({
+    email: form.email,
+    password: form.password
+  })
 
   if (!authStore.error && authStore.isAuthenticated) {
     router.push(targetPath)
@@ -81,11 +68,6 @@ function continueWithGoogle() {
 
           <div class="col-lg-6">
             <div class="glass-panel p-4 p-lg-5 h-100">
-              <div class="d-flex gap-2 mb-4">
-                <button class="btn" :class="mode === 'login' ? 'btn-tf-primary' : 'btn-tf-secondary'" @click="mode = 'login'">Login</button>
-                <button class="btn" :class="mode === 'register' ? 'btn-tf-primary' : 'btn-tf-secondary'" @click="mode = 'register'">Register</button>
-              </div>
-
               <button class="btn btn-tf-secondary w-100 mb-3" @click="continueWithGoogle">
                 Continue with Google
               </button>
@@ -101,17 +83,12 @@ function continueWithGoogle() {
                   <label class="form-label">Password</label>
                   <input v-model="form.password" type="password" class="form-control" placeholder="Minimum 6 characters" />
                 </div>
-                <div v-if="mode === 'register'">
-                  <label class="form-label">Confirm Password</label>
-                  <input v-model="form.confirmPassword" type="password" class="form-control" placeholder="Confirm your password" />
-                </div>
-
                 <div v-if="validationError" class="text-warning small">{{ validationError }}</div>
                 <div v-if="authStore.error" class="text-danger small">{{ authStore.error }}</div>
                 <div v-if="authStore.notice" class="text-info small">{{ authStore.notice }}</div>
 
                 <button class="btn btn-tf-primary w-100" :disabled="authStore.loading">
-                  {{ authStore.loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account' }}
+                  {{ authStore.loading ? 'Please wait...' : 'Sign In' }}
                 </button>
               </form>
             </div>

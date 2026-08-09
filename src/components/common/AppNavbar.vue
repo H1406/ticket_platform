@@ -9,7 +9,6 @@ const router = useRouter()
 
 const navItems = computed(() => [
   { label: 'Platform', to: '/' },
-  { label: 'Dashboard', to: '/dashboard' },
   { label: 'Search', to: '/search' },
   { label: 'Seats', to: '/seat-selection' },
   { label: 'Ticket', to: '/ticket' }
